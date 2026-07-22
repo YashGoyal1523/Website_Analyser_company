@@ -109,7 +109,7 @@ const AuthModal = ({ onClose, initialMode = 'login' }) => {
                     <p className="text-sm text-gray-500">
                         {mode === 'login'
                             ? 'Sign in to access your dashboard'
-                            : 'Get started for free — no credit card needed'}
+                            : 'Get started for free'}
                     </p>
                 </div>
 

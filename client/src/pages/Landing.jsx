@@ -242,7 +242,7 @@ const Landing = () => {
                     Ready to audit your website?
                 </h2>
                 <p className="text-blue-200 mb-8 text-base">
-                    Free to use. No credit card required.
+                    Free to use.
                 </p>
                 <button
                     onClick={handleCTA}
