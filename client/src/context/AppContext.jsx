@@ -8,7 +8,7 @@ export const LIGHTHOUSE_AUDIT_SECONDS = 7
 export const PAGE_LOAD_ESTIMATE_SECONDS = 8
 
 const AppContextProvider = ({ children }) => {
-    const backendUrl = import.meta.env.VITE_BACKEND_URL
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || ''
     const [analysisData, setAnalysisData] = useState(null)
     const [loading, setLoading] = useState(false)
     const [progress, setProgress] = useState({ elapsed: 0, total: 0 })
