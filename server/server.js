@@ -3,10 +3,17 @@ import cors from 'cors'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { exec } from 'child_process'
+import dns from 'dns'
 import 'dotenv/config'
 import connectDB from './config/mongodb.js'
 import analysisRouter from './routes/analysisRoutes.js'
 import authRouter from './routes/authRoutes.js'
+
+// Some ISPs/routers fail to resolve the DNS SRV record MongoDB Atlas's
+// mongodb+srv:// URIs depend on, even though normal DNS works fine.
+// Pointing Node's resolver at a public DNS server avoids that regardless
+// of the end user's network/router.
+dns.setServers(['8.8.8.8', '1.1.1.1'])
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
