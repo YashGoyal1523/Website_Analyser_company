@@ -1,5 +1,5 @@
 #define AppName "WebsiteAnalyzer"
-#define AppExeName "start.vbs"
+#define AppExeName "start.bat"
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif

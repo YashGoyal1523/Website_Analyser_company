@@ -68,13 +68,11 @@ function flattenSingleSubdir(destDir) {
   fs.rmdirSync(inner)
 }
 
-const START_VBS = [
-  'Dim fso, shell, scriptDir',
-  'Set fso = CreateObject("Scripting.FileSystemObject")',
-  'Set shell = CreateObject("WScript.Shell")',
-  'scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)',
-  'shell.CurrentDirectory = scriptDir & "\\app"',
-  'shell.Run """" & scriptDir & "\\node\\node.exe"" server.js", 0, False',
+const START_BAT = [
+  '@echo off',
+  'cd /d "%~dp0app"',
+  '"%~dp0node\\node.exe" server.js',
+  'pause',
 ].join('\r\n') + '\r\n'
 
 async function main() {
@@ -107,7 +105,7 @@ async function main() {
   fs.rmSync(zipPath)
 
   console.log('== 5/5: write launcher ==')
-  fs.writeFileSync(path.join(OUT, 'start.vbs'), START_VBS)
+  fs.writeFileSync(path.join(OUT, 'start.bat'), START_BAT)
 
   console.log(`\nDone. Package assembled at: ${OUT}`)
 }
