@@ -23,6 +23,35 @@ const AppContextProvider = ({ children }) => {
         if (savedUser && token) setUser(JSON.parse(savedUser))
     }, [])
 
+    const clearSession = () => {
+        setToken('')
+        setUser(null)
+        setAnalysisData(null)
+        setUserAnalyses([])
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+    }
+
+    // A 401 on a request that carried a bearer token means the server rejected
+    // that token (expired/invalid) — the client would otherwise sit on a stale
+    // token forever, silently failing every authenticated call until the user
+    // happens to log out manually. Only requests that sent Authorization are
+    // treated this way, so a genuine login/register 401 (wrong password, no
+    // account) doesn't get misread as a session expiring.
+    useEffect(() => {
+        const interceptor = axios.interceptors.response.use(
+            (response) => response,
+            (error) => {
+                if (error.response?.status === 401 && error.config?.headers?.Authorization) {
+                    clearSession()
+                    toast.error('Session expired. Please log in again.')
+                }
+                return Promise.reject(error)
+            }
+        )
+        return () => axios.interceptors.response.eject(interceptor)
+    }, [])
+
     const openAuth = (mode = 'login') => {
         setAuthMode(mode)
         setShowAuth(true)
@@ -95,12 +124,7 @@ const AppContextProvider = ({ children }) => {
     }
 
     const logout = () => {
-        setToken('')
-        setUser(null)
-        setAnalysisData(null)
-        setUserAnalyses([])
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
+        clearSession()
         toast.success('Logged out successfully')
     }
 
