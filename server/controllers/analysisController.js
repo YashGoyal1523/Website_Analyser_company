@@ -416,4 +416,14 @@ export const getUserAnalyses = async (req, res) => {
     }
 };
 
+export const deleteAnalysis = async (req, res) => {
+    try {
+        const analysis = await analysisModel.findOneAndDelete({ _id: req.params.id, userId: req.userId });
+        if (!analysis) return res.status(404).json({ success: false, message: 'Not found' });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+};
+
 export default analyzeWebsite;

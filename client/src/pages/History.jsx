@@ -4,7 +4,7 @@ import { AppContext } from '../context/AppContext'
 import AnalysisCard from '../components/AnalysisCard'
 
 const History = () => {
-    const { userAnalyses, fetchUserAnalyses } = useContext(AppContext)
+    const { userAnalyses, fetchUserAnalyses, deleteAnalysis } = useContext(AppContext)
     const navigate = useNavigate()
     const [fetching, setFetching]   = useState(false)
     const [search, setSearch]       = useState('')
@@ -41,6 +41,10 @@ const History = () => {
             params.set('sequence', JSON.stringify(sequence))
         }
         navigate(`/dashboard?${params.toString()}`)
+    }
+
+    const handleDelete = (id) => {
+        deleteAnalysis(id)
     }
 
     const handleCardClick = (id) => {
@@ -205,6 +209,7 @@ const History = () => {
                             onClick={() => handleCardClick(analysis._id)}
                             onView={() => handleView(analysis._id)}
                             onRerun={() => handleRerun(analysis)}
+                            onDelete={() => handleDelete(analysis._id)}
                             compareMode={compareMode}
                             isSelected={selectedIds.includes(analysis._id)}
                         />

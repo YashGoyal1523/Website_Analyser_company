@@ -23,7 +23,7 @@ const METRICS = [
     { key: 'cls', label: 'CLS', fmt: v => v.toFixed(3) },
 ]
 
-const AnalysisCard = ({ analysis, onClick, onView, onRerun, compareMode = false, isSelected = false }) => {
+const AnalysisCard = ({ analysis, onClick, onView, onRerun, onDelete, compareMode = false, isSelected = false }) => {
     const { url, lighthouseData, createdAt, mode } = analysis
     const date    = new Date(createdAt)
     const domain  = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
@@ -67,6 +67,17 @@ const AnalysisCard = ({ analysis, onClick, onView, onRerun, compareMode = false,
                         </p>
                     </div>
                 </div>
+                {!compareMode && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onDelete?.() }}
+                        className="text-gray-300 hover:text-red-400 transition-colors shrink-0"
+                        title="Delete"
+                    >
+                        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+                        </svg>
+                    </button>
+                )}
             </div>
 
             {/* Metrics row */}

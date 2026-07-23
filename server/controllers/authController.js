@@ -34,7 +34,9 @@ export const login = async (req, res) => {
     return res.status(400).json({ success: false, message: 'All fields required' })
   try {
     const user = await userModel.findOne({ email })
-    if (!user || !(await bcrypt.compare(password, user.password)))
+    if (!user)
+      return res.status(401).json({ success: false, message: 'User does not exist' })
+    if (!(await bcrypt.compare(password, user.password)))
       return res.status(401).json({ success: false, message: 'Invalid credentials' })
     res.json({
       success: true,
