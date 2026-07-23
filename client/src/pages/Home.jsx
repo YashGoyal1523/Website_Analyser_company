@@ -4,6 +4,7 @@ import { toast } from 'react-toastify'
 import { AppContext, PAGE_LOAD_ESTIMATE_SECONDS, LIGHTHOUSE_AUDIT_SECONDS } from '../context/AppContext'
 import { lighthouseMetrics } from '../assets/assets'
 import { formatElapsed as formatDuration } from '../utils/blocks'
+import StepTypeSelect from '../components/StepTypeSelect'
 
 const STEP_TIME = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3 }
 
@@ -33,7 +34,7 @@ const STEP_DOT = {
     search: 'bg-cyan-500', goBack: 'bg-gray-400',
 }
 
-const smInput = 'w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-50'
+const smInput = 'w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-50'
 
 const metricColor = (key, value) => {
     if (value == null) return 'text-gray-400'
@@ -457,16 +458,11 @@ const Home = () => {
                                         )
 
                                         return (
-                                            <div key={i} className={`bg-gray-50 border border-gray-200 border-l-4 ${STEP_BORDER[item.type]} rounded-xl p-4`}>
-                                                <div className="flex items-center gap-3">
-                                                    <span className={`w-2 h-2 rounded-full shrink-0 ${STEP_DOT[item.type]}`} />
+                                            <div key={i} className={`bg-gray-50 border border-gray-200 border-l-4 ${STEP_BORDER[item.type]} rounded-xl p-2.5`}>
+                                                <div className="flex items-center gap-2">
                                                     <span className="text-xs text-gray-400 font-medium w-4 shrink-0">{i + 1}</span>
-                                                    <select value={item.type} onChange={e => changeStepType(i, e.target.value)} disabled={loading}
-                                                        className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer shrink-0">
-                                                        {Object.entries(STEP_LABELS).map(([val, label]) => (
-                                                            <option key={val} value={val}>{label}</option>
-                                                        ))}
-                                                    </select>
+                                                    <StepTypeSelect value={item.type} onChange={type => changeStepType(i, type)} disabled={loading}
+                                                        options={STEP_LABELS} dotColors={STEP_DOT} />
                                                     <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">
                                                         {STEP_TIME[item.type]}s
                                                     </span>
@@ -476,17 +472,17 @@ const Home = () => {
                                                     {item.type === 'scroll' && <span className="text-xs text-gray-400">Scrolls to bottom then back to top</span>}
                                                     {item.type === 'goBack' && <span className="text-xs text-gray-400">Navigates to the previous page</span>}
                                                     <button type="button" onClick={() => removeItem(i)} disabled={loading} className="ml-auto text-gray-300 hover:text-red-400 transition-colors shrink-0 disabled:opacity-50">
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" /></svg>
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" /></svg>
                                                     </button>
                                                 </div>
                                                 {item.type === 'search' && (
-                                                    <div className="mt-3 ml-9 space-y-2">
+                                                    <div className="mt-2.5 ml-6 space-y-2">
                                                         <input disabled={loading} className={smInput} placeholder="Input selector  (e.g. input[name='q'])" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
                                                         <input disabled={loading} className={smInput} placeholder="Search query  (e.g. shoes)" value={item.query} onChange={e => updateItem(i, 'query', e.target.value)} />
                                                     </div>
                                                 )}
                                                 {item.type === 'login' && (
-                                                    <div className="mt-3 ml-9 space-y-3">
+                                                    <div className="mt-2.5 ml-6 space-y-3">
                                                         <div>
                                                             <p className="text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Selectors</p>
                                                             <div className="space-y-2">
