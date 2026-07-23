@@ -36,4 +36,8 @@ connectDB().then(() => {
       exec(`start http://localhost:${PORT}`)
     }
   })
+}).catch((err) => {
+  console.error('Failed to connect to the database. Check your MONGODB_URI.')
+  console.error(err.message)
+  process.exit(1)
 })

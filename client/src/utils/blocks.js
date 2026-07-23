@@ -1,4 +1,4 @@
-export const buildBlocks = (sequence, runtimeData) => {
+export const buildBlocks = (sequence) => {
     if (!sequence?.length) return []
     const result = []
     let runCursor = 0
@@ -8,8 +8,7 @@ export const buildBlocks = (sequence, runtimeData) => {
             if (count <= 0) continue
             const startRun = runCursor + 1
             const endRun = runCursor + count
-            const url = runtimeData?.find(r => r.run === startRun)?.url
-            result.push({ index: result.length + 1, startRun, endRun, url })
+            result.push({ index: result.length + 1, startRun, endRun })
             runCursor += count
         }
     }

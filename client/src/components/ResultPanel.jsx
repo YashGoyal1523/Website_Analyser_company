@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import {
     LineChart, Line, AreaChart, Area,
     XAxis, YAxis, CartesianGrid, Tooltip,
@@ -32,9 +33,22 @@ const scoreBadge  = s => s >= 90
 const scoreLabel  = s => s >= 90 ? 'Good' : s >= 50 ? 'Needs Improvement' : 'Poor'
 
 const tooltipStyle = {
-    contentStyle: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.07)' },
+    // whiteSpace overrides recharts' own default of 'nowrap', which otherwise
+    // gets inherited by the URL text below and silently defeats break-all.
+    contentStyle: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.07)', whiteSpace: 'normal' },
     labelStyle:   { color: '#111827', fontWeight: 600 },
     itemStyle:    { color: '#374151' },
+    // Pin to the top of the chart instead of following the cursor vertically —
+    // with full (non-truncated) URLs the box can span several lines, and
+    // tracking the cursor would let it sit right on top of the hovered point.
+    position: { y: 0 },
+    // Prefer the left side of the cursor. Our charts scroll horizontally past
+    // their visible width, and recharts only knows the *full* chart's bounds
+    // (not our external scroll clipping) — placing right-first regularly pushed
+    // the box into the not-yet-scrolled-into-view (and thus clipped) region.
+    // Everything to the left of the cursor has already been scrolled past, so
+    // it's always visible.
+    reverseDirection: { x: true },
 }
 const axisProps = { stroke: 'transparent', tick: { fill: '#9ca3af', fontSize: 11 } }
 const intervalAxisProps = {
@@ -42,8 +56,92 @@ const intervalAxisProps = {
     type: 'number',
     domain: ['dataMin', 'dataMax'],
     allowDecimals: false,
+    interval: 0,
     tickFormatter: v => `#${v}`,
-    label: { value: 'Interval', position: 'insideBottom', offset: -10, fill: '#d1d5db', fontSize: 11 },
+}
+// Used only inside the fixed y-axis panel's own chart, to keep its x-scale/margins
+// identical to the scrollable chart without rendering a second visible x-axis.
+const hiddenXAxisProps = { type: 'number', domain: ['dataMin', 'dataMax'], hide: true }
+
+// Caption shown once, centered under the whole chart (fixed axis + scroll area) —
+// stays put regardless of horizontal scroll position, unlike an axis label baked
+// into the scrollable SVG would.
+const IntervalCaption = () => (
+    <p className="text-center text-[11px] text-gray-300 mt-1">Interval</p>
+)
+
+// One pixel width per interval tick, so with interval=0 (every label forced on)
+// there's always enough room for every "#N" label — the chart scrolls
+// horizontally instead of crowding or dropping labels on long sessions.
+const PX_PER_TICK = 40
+
+// Native scrollbars are unreliable here — macOS/Chrome overlay scrollbars stay
+// invisible regardless of CSS. Draw our own track + thumb from actual scroll
+// state instead, so the affordance renders identically on every browser/OS.
+const ChartScroll = ({ tickCount, children }) => {
+    const scrollRef = useRef(null)
+    const [overflowing, setOverflowing] = useState(false)
+    const [thumb, setThumb] = useState({ left: 0, width: 100 })
+
+    useEffect(() => {
+        const el = scrollRef.current
+        if (!el) return
+        const update = () => {
+            const isOverflowing = el.scrollWidth > el.clientWidth + 1
+            setOverflowing(isOverflowing)
+            if (isOverflowing) {
+                setThumb({
+                    left: (el.scrollLeft / el.scrollWidth) * 100,
+                    width: (el.clientWidth / el.scrollWidth) * 100,
+                })
+            }
+        }
+        update()
+        el.addEventListener('scroll', update)
+        window.addEventListener('resize', update)
+        return () => {
+            el.removeEventListener('scroll', update)
+            window.removeEventListener('resize', update)
+        }
+    }, [tickCount])
+
+    return (
+        <div className="flex-1 min-w-0">
+            <div ref={scrollRef} className="overflow-x-auto no-native-scrollbar">
+                <div style={{ width: `max(100%, ${tickCount * PX_PER_TICK}px)` }}>
+                    {children}
+                </div>
+            </div>
+            {overflowing && (
+                <div className="relative h-1 mt-2 rounded-full bg-gray-50 overflow-hidden">
+                    <div
+                        className="absolute top-0 h-full rounded-full bg-gray-200"
+                        style={{ left: `${thumb.left}%`, width: `${thumb.width}%` }}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
+// Renders just the y-axis, pinned outside the horizontally-scrolling chart so it
+// never scrolls off screen. Needs an invisible series matching the real chart's
+// dataKey(s) — Recharts computes an "auto" domain from the plotted series, not
+// the raw data, so without one this axis's scale wouldn't match the real chart.
+const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false }) => {
+    const Chart = area ? AreaChart : LineChart
+    const Series = area ? Area : Line
+    return (
+        <ResponsiveContainer className="shrink-0" width={width} height={height}>
+            <Chart data={data} margin={{ top: 10, bottom: 22, right: 0, left: 0 }}>
+                <XAxis dataKey="run" {...hiddenXAxisProps} />
+                <YAxis {...axisProps} unit={unit} tickFormatter={tickFormatter} width={width} domain={['auto', 'auto']} />
+                {series.map(dataKey => (
+                    <Series key={dataKey} dataKey={dataKey} stroke="none" fill="none" dot={false} isAnimationActive={false} />
+                ))}
+            </Chart>
+        </ResponsiveContainer>
+    )
 }
 
 // Shows the interval number and the page URL that was being monitored at that
@@ -54,7 +152,7 @@ const intervalTooltipLabel = (v, payload) => {
         <>
             <div>{`Interval #${v}`}</div>
             {p?.url && (
-                <div className="truncate max-w-55" style={{ color: '#9ca3af', fontWeight: 400, marginTop: 2 }}>
+                <div className="break-all max-w-70" style={{ color: '#9ca3af', fontWeight: 400, marginTop: 2 }}>
                     {p.url}
                 </div>
             )}
@@ -141,17 +239,25 @@ const BlockDividers = ({ blocks }) =>
     ))
 
 const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = [] }) => (
-    <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-            <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
-            <YAxis {...axisProps} unit={unit} width={65} domain={['auto', 'auto']} />
-            <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
-            <BlockDividers blocks={blocks} />
-            <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2}
-                dot={{ r: 3, fill: color, strokeWidth: 0 }} activeDot={{ r: 5 }} />
-        </LineChart>
-    </ResponsiveContainer>
+    <div>
+        <div className="flex">
+            <FixedYAxis data={data} series={[dataKey]} unit={unit} height={height} />
+            <ChartScroll tickCount={ticks.length}>
+                <ResponsiveContainer width="100%" height={height}>
+                    <LineChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                        <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
+                        <YAxis hide domain={['auto', 'auto']} />
+                        <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
+                        <BlockDividers blocks={blocks} />
+                        <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2}
+                            dot={{ r: 3, fill: color, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                    </LineChart>
+                </ResponsiveContainer>
+            </ChartScroll>
+        </div>
+        <IntervalCaption />
+    </div>
 )
 
 /* ── main ─────────────────────────────────────────────────── */
@@ -159,13 +265,12 @@ const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = 
 const ResultPanel = ({ data }) => {
     const { url, lighthouseData, runtimeData = [] } = data
 
-    const blocks = withTiming(buildBlocks(data.sequence, runtimeData), runtimeData)
-    const urlOf = r => blocks.find(b => r.run >= b.startRun && r.run <= b.endRun)?.url ?? url
+    const blocks = withTiming(buildBlocks(data.sequence), runtimeData)
     const ticks = runtimeData.map(r => r.run)
 
     const cpuData = runtimeData.map(r => ({
         run:    r.run,
-        url:    urlOf(r),
+        url:    r.url ?? url,
         Script: +(r.scriptDuration  * 1000).toFixed(2),
         Task:   +(r.taskDuration    * 1000).toFixed(2),
         Layout: +(r.layoutDuration  * 1000).toFixed(2),
@@ -173,7 +278,7 @@ const ResultPanel = ({ data }) => {
 
     const memData = runtimeData.map(r => ({
         run: r.run,
-        url: urlOf(r),
+        url: r.url ?? url,
         'Heap MB': +(r.jsHeapUsedSize / 1024 / 1024).toFixed(2),
     }))
 
@@ -181,13 +286,13 @@ const ResultPanel = ({ data }) => {
     // Chrome's own Task Manager shows for a tab, distinct from the V8 heap above.
     const procMemData = runtimeData.map(r => ({
         run: r.run,
-        url: urlOf(r),
+        url: r.url ?? url,
         'Process RSS MB': r.processMemoryMB,
     }))
 
     const domData = runtimeData.map(r => ({
         run:               r.run,
-        url:               urlOf(r),
+        url:               r.url ?? url,
         'DOM Nodes':       r.domNodes,
         'Event Listeners': r.jsEventListeners,
     }))
@@ -284,67 +389,77 @@ const ResultPanel = ({ data }) => {
 
                     <div className="flex flex-col gap-4">
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <ChartCard title="Script Duration" subtitle="Time executing JS (ms)">
-                                <MetricLine data={cpuData} dataKey="Script" color="#6366f1" unit="ms" ticks={ticks} blocks={blocks} />
-                            </ChartCard>
-                            <ChartCard title="Task Duration" subtitle="Main-thread task time (ms)">
-                                <MetricLine data={cpuData} dataKey="Task" color="#f59e0b" unit="ms" ticks={ticks} blocks={blocks} />
-                            </ChartCard>
-                        </div>
+                        <ChartCard title="Script Duration" subtitle="Time executing JS (ms)">
+                            <MetricLine data={cpuData} dataKey="Script" color="#6366f1" unit="ms" ticks={ticks} blocks={blocks} />
+                        </ChartCard>
+
+                        <ChartCard title="Task Duration" subtitle="Main-thread task time (ms)">
+                            <MetricLine data={cpuData} dataKey="Task" color="#f59e0b" unit="ms" ticks={ticks} blocks={blocks} />
+                        </ChartCard>
 
                         <ChartCard title="Layout Duration" subtitle="Time spent on layout & paint (ms)">
                             <MetricLine data={cpuData} dataKey="Layout" color="#ec4899" unit="ms" ticks={ticks} height={200} blocks={blocks} />
                         </ChartCard>
 
                         <ChartCard title="JS Heap Memory" subtitle="JavaScript memory in use (MB)">
-                            <ResponsiveContainer width="100%" height={220}>
-                                <AreaChart data={memData} margin={{ top: 10, bottom: 22, right: 10, left: 10 }}>
-                                    <defs>
-                                        <linearGradient id="heapGrad" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.2} />
-                                            <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                    <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
-                                    <YAxis {...axisProps} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} domain={['auto', 'auto']} />
-                                    <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
-                                    <BlockDividers blocks={blocks} />
-                                    <Area type="monotone" dataKey="Heap MB" stroke="#22c55e" fill="url(#heapGrad)"
-                                        strokeWidth={2} dot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                                </AreaChart>
-                            </ResponsiveContainer>
+                            <div className="flex">
+                                <FixedYAxis data={memData} series={['Heap MB']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area />
+                                <ChartScroll tickCount={ticks.length}>
+                                    <ResponsiveContainer width="100%" height={220}>
+                                        <AreaChart data={memData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                                            <defs>
+                                                <linearGradient id="heapGrad" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.2} />
+                                                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
+                                            <YAxis hide domain={['auto', 'auto']} />
+                                            <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
+                                            <BlockDividers blocks={blocks} />
+                                            <Area type="monotone" dataKey="Heap MB" stroke="#22c55e" fill="url(#heapGrad)"
+                                                strokeWidth={2} dot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </ChartScroll>
+                            </div>
+                            <IntervalCaption />
                         </ChartCard>
 
                         <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of the page's Chrome renderer process (MB)">
-                            <ResponsiveContainer width="100%" height={220}>
-                                <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 10 }}>
-                                    <defs>
-                                        <linearGradient id="procMemGrad" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%"  stopColor="#f97316" stopOpacity={0.2} />
-                                            <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                    <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
-                                    <YAxis {...axisProps} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} domain={['auto', 'auto']} />
-                                    <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
-                                    <BlockDividers blocks={blocks} />
-                                    <Area type="monotone" dataKey="Process RSS MB" stroke="#f97316" fill="url(#procMemGrad)"
-                                        strokeWidth={2} dot={{ r: 3, fill: '#f97316', strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                                </AreaChart>
-                            </ResponsiveContainer>
+                            <div className="flex">
+                                <FixedYAxis data={procMemData} series={['Process RSS MB']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area />
+                                <ChartScroll tickCount={ticks.length}>
+                                    <ResponsiveContainer width="100%" height={220}>
+                                        <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                                            <defs>
+                                                <linearGradient id="procMemGrad" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%"  stopColor="#f97316" stopOpacity={0.2} />
+                                                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
+                                            <YAxis hide domain={['auto', 'auto']} />
+                                            <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
+                                            <BlockDividers blocks={blocks} />
+                                            <Area type="monotone" dataKey="Process RSS MB" stroke="#f97316" fill="url(#procMemGrad)"
+                                                strokeWidth={2} dot={{ r: 3, fill: '#f97316', strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </ChartScroll>
+                            </div>
+                            <IntervalCaption />
                         </ChartCard>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <ChartCard title="DOM Nodes" subtitle="Total nodes in the document">
-                                <MetricLine data={domData} dataKey="DOM Nodes" color="#38bdf8" ticks={ticks} blocks={blocks} />
-                            </ChartCard>
-                            <ChartCard title="Event Listeners" subtitle="Active JS event listeners">
-                                <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} />
-                            </ChartCard>
-                        </div>
+                        <ChartCard title="DOM Nodes" subtitle="Total nodes in the document">
+                            <MetricLine data={domData} dataKey="DOM Nodes" color="#38bdf8" ticks={ticks} blocks={blocks} />
+                        </ChartCard>
+
+                        <ChartCard title="Event Listeners" subtitle="Active JS event listeners">
+                            <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} />
+                        </ChartCard>
 
                     </div>
                 </section>

@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* Chart horizontal-scroll containers draw their own track/thumb indicator
+   (driven by JS scroll state) below the chart, so the browser's native
+   scrollbar is hidden here to avoid showing two redundant bars. */
+.no-native-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-native-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @media print {
   nav, .no-print { display: none !important; }
   body { background: white !important; }

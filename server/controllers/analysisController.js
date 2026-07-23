@@ -163,7 +163,7 @@ async function runLighthouse(url) {
     }
 }
 
-async function runSequence(url, sequence, totalDurationMs, mode) {
+async function runSequence(url, sequence, totalDurationMs, mode, req) {
     const results = [];
     const warnings = [];
     let runCounter = 0;
@@ -219,13 +219,13 @@ async function runSequence(url, sequence, totalDurationMs, mode) {
                         // The deadline already fired: stop before attempting another
                         // capture instead of letting this loop run past runSequence's
                         // own browser.close() and misreport a real disconnect.
-                        if (timedOut) return;
+                        if (timedOut || clientDisconnected) return;
                         const slotStart = Date.now();
                         let metrics;
                         try {
                             metrics = await page.metrics();
                         } catch (e) {
-                            if (timedOut) return;
+                            if (timedOut || clientDisconnected) return;
                             browserDisconnected = true;
                             warnings.push(mode === 'manual'
                                 ? `Browser window was closed before Total Duration elapsed; results reflect runtime up to that point. (${e.message})`
@@ -277,13 +277,22 @@ async function runSequence(url, sequence, totalDurationMs, mode) {
         // the sequence (its in-flight step, if any, gets cut short once the browser closes
         // below) instead of only checking after the fact.
         let timedOut = false;
+        // A page refresh (or the tab being closed) aborts the client's request, but
+        // Express has no idea by default — without this, the sequence rides out the
+        // full Total Duration server-side with nobody left to receive the result.
+        let clientDisconnected = false;
+        let resolveDisconnect;
+        const disconnected = new Promise(resolve => { resolveDisconnect = resolve; });
+        const onClientClose = () => { clientDisconnected = true; resolveDisconnect(); };
+        req?.on('close', onClientClose);
+
         const deadlineMs = Math.max(0, totalDurationMs - (Date.now() - sessionStart));
         const timeout = sleep(deadlineMs).then(() => { timedOut = true; });
         const sequenceDone = runAllItems().catch(e => { warnings.push(`Sequence error: ${e.message}`); });
-        await Promise.race([sequenceDone, timeout]);
+        await Promise.race([sequenceDone, timeout, disconnected]);
 
-        if (browserDisconnected) {
-            // Nothing left to capture or wait for — the page/browser is already gone.
+        if (browserDisconnected || clientDisconnected) {
+            // Nothing left to capture or wait for — the page/browser or the client is already gone.
         } else if (timedOut) {
             // For a manual live session the analyse block is deliberately unbounded, so
             // running out the clock is the normal/expected way it ends, not a fault.
@@ -296,6 +305,7 @@ async function runSequence(url, sequence, totalDurationMs, mode) {
             if (remainingSessionTime > 0) await sleep(remainingSessionTime);
         }
     } finally {
+        req?.off('close', onClientClose);
         // Closing an already-closed browser (e.g. the user closed the window) is expected
         // and fine; anything else is worth a trace since it's otherwise invisible.
         try { await browser.close(); } catch (e) { console.error('browser.close() failed:', e.message); }
@@ -315,10 +325,10 @@ const redactSequence = (sequence) =>
         return rest;
     });
 
-async function analyzeOverTime(url, sequence, totalDurationMs, mode) {
+async function analyzeOverTime(url, sequence, totalDurationMs, mode, req) {
     const [lighthouseData, { results: runtimeData, warnings }] = await Promise.all([
         runLighthouse(url),
-        runSequence(url, sequence, totalDurationMs, mode),
+        runSequence(url, sequence, totalDurationMs, mode, req),
     ]);
 
     return { url, totalRuns: runtimeData.length, lighthouseData, runtimeData, warnings };
@@ -380,7 +390,7 @@ const analyzeWebsite = async (req, res) => {
             }
         }
 
-        const data = await analyzeOverTime(url, sequence, totalDurationSeconds * 1000, mode);
+        const data = await analyzeOverTime(url, sequence, totalDurationSeconds * 1000, mode, req);
         const { warnings, ...dbData } = data;
         // The raw `sequence` (with real credentials, needed above to drive the login
         // step) must never be persisted or sent back — only this redacted copy is.
