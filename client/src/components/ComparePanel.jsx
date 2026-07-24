@@ -168,12 +168,12 @@ const compareTooltipLabel = (v, payload) => {
     const p = payload?.[0]?.payload
     return (
         <>
-            <div>{`Interval #${v}`}</div>
+            <span style={{ display: 'block' }}>{`Interval #${v}`}</span>
             {p?.urlA && (
-                <div className="break-all max-w-70" style={{ color: COLOR_A, fontWeight: 400, marginTop: 2 }}>A: {p.urlA}</div>
+                <span className="break-all max-w-70" style={{ display: 'block', color: COLOR_A, fontWeight: 400, marginTop: 2 }}>A: {p.urlA}</span>
             )}
             {p?.urlB && (
-                <div className="break-all max-w-70" style={{ color: COLOR_B, fontWeight: 400, marginTop: 2 }}>B: {p.urlB}</div>
+                <span className="break-all max-w-70" style={{ display: 'block', color: COLOR_B, fontWeight: 400, marginTop: 2 }}>B: {p.urlB}</span>
             )}
         </>
     )

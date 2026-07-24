@@ -150,11 +150,11 @@ const intervalTooltipLabel = (v, payload) => {
     const p = payload?.[0]?.payload
     return (
         <>
-            <div>{`Interval #${v}`}</div>
+            <span style={{ display: 'block' }}>{`Interval #${v}`}</span>
             {p?.url && (
-                <div className="break-all max-w-70" style={{ color: '#9ca3af', fontWeight: 400, marginTop: 2 }}>
+                <span className="break-all max-w-70" style={{ display: 'block', color: '#9ca3af', fontWeight: 400, marginTop: 2 }}>
                     {p.url}
-                </div>
+                </span>
             )}
         </>
     )

@@ -169,13 +169,21 @@ async function runSequence(url, sequence, totalDurationMs, mode, req) {
     let runCounter = 0;
     let loginFailed = false;
     let browserDisconnected = false;
+    let onClientClose;
 
     const browser = await puppeteer.launch({
         headless: mode === 'manual' ? false : 'new',
+        // Without this, Puppeteer pins the page viewport to its 800x600 default
+        // regardless of the actual Chrome window size — null lets the page fill
+        // whatever window Chrome opens (maximized, below).
+        defaultViewport: mode === 'manual' ? null : undefined,
         // Chrome keeps a warm "spare" renderer process around for the next navigation,
         // separate from any tab's actual renderer — left enabled, SystemInfo.getProcessInfo
         // reports it alongside our page's renderer and inflates the memory reading below.
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-features=SpareRendererForSitePerProcess']
+        args: [
+            '--no-sandbox', '--disable-setuid-sandbox', '--disable-features=SpareRendererForSitePerProcess',
+            ...(mode === 'manual' ? ['--start-maximized'] : []),
+        ]
     });
     try {
         // Reuse Chromium's own default tab instead of opening a second one via
@@ -283,7 +291,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, req) {
         let clientDisconnected = false;
         let resolveDisconnect;
         const disconnected = new Promise(resolve => { resolveDisconnect = resolve; });
-        const onClientClose = () => { clientDisconnected = true; resolveDisconnect(); };
+        onClientClose = () => { clientDisconnected = true; resolveDisconnect(); };
         req?.on('close', onClientClose);
 
         const deadlineMs = Math.max(0, totalDurationMs - (Date.now() - sessionStart));
