@@ -34,9 +34,11 @@ export default function StepTypeSelect({ value, onChange, options, dotColors, di
     return (
         <>
             <button ref={buttonRef} type="button" disabled={disabled} onClick={() => (open ? setOpen(false) : openMenu())}
-                className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-sm font-medium text-gray-700 hover:border-gray-300 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer shrink-0">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColors[value]}`} />
-                {options[value]}
+                className="flex items-center justify-between gap-1.5 w-28 bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-sm font-medium text-gray-700 hover:border-gray-300 focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer shrink-0">
+                <span className="flex items-center gap-1.5 min-w-0">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColors[value]}`} />
+                    <span className="truncate">{options[value]}</span>
+                </span>
                 <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

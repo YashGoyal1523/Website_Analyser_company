@@ -463,7 +463,7 @@ const Home = () => {
                                                     <span className="text-xs text-gray-400 font-medium w-4 shrink-0">{i + 1}</span>
                                                     <StepTypeSelect value={item.type} onChange={type => changeStepType(i, type)} disabled={loading}
                                                         options={STEP_LABELS} dotColors={STEP_DOT} />
-                                                    <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">
+                                                    <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 w-10 text-center">
                                                         {STEP_TIME[item.type]}s
                                                     </span>
                                                     {(item.type === 'hover' || item.type === 'click') && (
