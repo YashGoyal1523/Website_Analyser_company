@@ -477,7 +477,7 @@ const Home = () => {
                                                 </div>
                                                 {item.type === 'search' && (
                                                     <div className="mt-2.5 ml-6 space-y-2">
-                                                        <input disabled={loading} className={smInput} placeholder="Input selector  (e.g. input[name='q'])" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
+                                                        <input disabled={loading} className={smInput} placeholder="CSS selector  (e.g. input[name='q'])" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
                                                         <input disabled={loading} className={smInput} placeholder="Search query  (e.g. shoes)" value={item.query} onChange={e => updateItem(i, 'query', e.target.value)} />
                                                     </div>
                                                 )}
@@ -512,17 +512,6 @@ const Home = () => {
                                         )
                                     })}
                                 </div>
-
-                                {sequence.some(s => s.type === 'login') && (
-                                    <div className="mt-3 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3">
-                                        <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                            <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                        <p className="text-xs text-amber-700 leading-relaxed">
-                                            You have a <strong>Login</strong> step: add a logout or navigation step at the end so each run starts fresh.
-                                        </p>
-                                    </div>
-                                )}
 
                                 <div className="flex gap-2 mt-3">
                                     <button type="button" onClick={addActionStep} disabled={loading}

@@ -34,6 +34,8 @@ connectDB().then(() => {
     console.log(`Server running on port ${PORT}`)
     if (process.platform === 'win32') {
       exec(`start http://localhost:${PORT}`)
+    } else if (process.platform === 'darwin') {
+      exec(`open http://localhost:${PORT}`)
     }
   })
 }).catch((err) => {
