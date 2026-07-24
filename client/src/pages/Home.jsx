@@ -7,12 +7,19 @@ import { formatElapsed as formatDuration } from '../utils/blocks'
 import StepTypeSelect from '../components/StepTypeSelect'
 
 const STEP_TIME = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3 }
+// A search step's flat estimate above assumes no submit — a submit button or Enter
+// checkbox adds a navigation wait, same ballpark as login's, so budget it like login
+// instead of undercounting it as a plain 2s type-and-click.
+const stepTimeSeconds = (item) =>
+    item.type === 'search' && (item.submitSelector || item.pressEnter)
+        ? STEP_TIME.login
+        : (STEP_TIME[item.type] || 1)
 
 const DEFAULT_STEP = {
     scroll:  { type: 'scroll' },
     hover:   { type: 'hover',  selector: '' },
     click:   { type: 'click',  selector: '' },
-    search:  { type: 'search', selector: '', query: '' },
+    search:  { type: 'search', selector: '', query: '', submitSelector: '', pressEnter: false },
     goBack:  { type: 'goBack' },
     login:   { type: 'login',  emailSelector: '', passwordSelector: '', submitSelector: '', email: '', password: '' },
 }
@@ -76,6 +83,7 @@ const Home = () => {
     const [intervalTimeSec, setIntervalTimeSec] = useState('')
     const [durationMin, setDurationMin] = useState('')
     const [durationSec, setDurationSec] = useState('')
+    const [showSelectorHelp, setShowSelectorHelp] = useState(false)
 
     const minDurationSeconds = PAGE_LOAD_ESTIMATE_SECONDS + LIGHTHOUSE_AUDIT_SECONDS
 
@@ -151,7 +159,7 @@ const Home = () => {
             const firstAnalyse = seq.find(i => i.type === 'analyse')
             setIntervalTimeFromSeconds(firstAnalyse?.intervalTime)
             if (!analysis.totalDuration) {
-                const actionTime  = seq.filter(i => i.type !== 'analyse').reduce((s, i) => s + (STEP_TIME[i.type] || 1), 0)
+                const actionTime  = seq.filter(i => i.type !== 'analyse').reduce((s, i) => s + stepTimeSeconds(i), 0)
                 const captureTime = seq.filter(i => i.type === 'analyse').reduce((s, i) => s + (Number(i.intervals) || 0) * (Number(i.intervalTime) || 0), 0)
                 setDurationFromSeconds(PAGE_LOAD_ESTIMATE_SECONDS + actionTime + captureTime)
             }
@@ -229,7 +237,7 @@ const Home = () => {
     const intervalTime = Number(intervalTimeMin || 0) * 60 + Number(intervalTimeSec || 0)
 
     const rawEstimatedSeconds = (() => {
-        const actionTime  = sequence.filter(i => i.type !== 'analyse').reduce((s, i) => s + (STEP_TIME[i.type] || 1), 0)
+        const actionTime  = sequence.filter(i => i.type !== 'analyse').reduce((s, i) => s + stepTimeSeconds(i), 0)
         const captureTime = sequence.filter(i => i.type === 'analyse').reduce((s, i) => s + (Number(i.intervals) || 0) * (Number(intervalTime) || 0), 0)
         const minSeconds = PAGE_LOAD_ESTIMATE_SECONDS + LIGHTHOUSE_AUDIT_SECONDS
         return Math.max(minSeconds, PAGE_LOAD_ESTIMATE_SECONDS + actionTime + captureTime)
@@ -379,7 +387,13 @@ const Home = () => {
                             <div className="px-7 py-6 border-b border-gray-100">
                                 <div className="flex items-center justify-between mb-4">
                                     <div>
-                                        <p className="text-sm font-semibold text-gray-700">Sequence</p>
+                                        <div className="flex items-center gap-1.5">
+                                            <p className="text-sm font-semibold text-gray-700">Sequence</p>
+                                            <button type="button" onClick={() => setShowSelectorHelp(s => !s)}
+                                                className="flex items-center justify-center w-4 h-4 rounded-full border border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors text-[10px] font-semibold">
+                                                ?
+                                            </button>
+                                        </div>
                                         <p className="text-xs text-gray-400 mt-0.5">Mix actions and analysis captures: executed in order</p>
                                     </div>
                                     {url && (durationMin !== '' || durationSec !== '') && (
@@ -391,6 +405,30 @@ const Home = () => {
                                         </span>
                                     )}
                                 </div>
+
+                                {showSelectorHelp && (
+                                    <div className="mb-4 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-900 leading-relaxed">
+                                        <p className="font-semibold mb-1">What each step does</p>
+                                        <ul className="list-disc list-inside space-y-0.5">
+                                            <li><strong>Hover</strong> — hovers the mouse over an element (e.g. to reveal a dropdown menu)</li>
+                                            <li><strong>Click</strong> — clicks an element (e.g. a button or link)</li>
+                                            <li><strong>Search</strong> — types a query into a search box, optionally submitting it via a button or Enter</li>
+                                            <li><strong>Login</strong> — fills in email and password fields and submits the login form</li>
+                                            <li><strong>Scroll</strong> — scrolls to the bottom of the page, then back to the top</li>
+                                            <li><strong>Go Back</strong> — navigates to the previous page, like the browser's back button</li>
+                                        </ul>
+
+                                        <p className="font-semibold mt-3 mb-1">How to find a CSS selector</p>
+                                        <p>
+                                            This applies to every selector field below (Hover, Click, Search, and the Login fields) — the method is the same regardless of which element you need:
+                                        </p>
+                                        <ol className="list-decimal list-inside mt-1.5 space-y-0.5">
+                                            <li>Right-click the element on the actual page (the button, input, link, etc.) → <strong>Inspect</strong></li>
+                                            <li>In DevTools, right-click the highlighted HTML line → <strong>Copy</strong> → <strong>Copy selector</strong></li>
+                                            <li>Paste it into the field</li>
+                                        </ol>
+                                    </div>
+                                )}
 
                                 {sequence.some(i => i.type === 'analyse') && (
                                     <div className="flex items-center gap-2 mb-3 bg-purple-50 border border-purple-100 rounded-xl px-4 py-2.5 flex-wrap">
@@ -464,21 +502,34 @@ const Home = () => {
                                                     <StepTypeSelect value={item.type} onChange={type => changeStepType(i, type)} disabled={loading}
                                                         options={STEP_LABELS} dotColors={STEP_DOT} />
                                                     <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 w-10 text-center">
-                                                        {STEP_TIME[item.type]}s
+                                                        {stepTimeSeconds(item)}s
                                                     </span>
-                                                    {(item.type === 'hover' || item.type === 'click') && (
-                                                        <input disabled={loading} className={smInput} placeholder="CSS selector" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
-                                                    )}
-                                                    {item.type === 'scroll' && <span className="text-xs text-gray-400">Scrolls to bottom then back to top</span>}
-                                                    {item.type === 'goBack' && <span className="text-xs text-gray-400">Navigates to the previous page</span>}
                                                     <button type="button" onClick={() => removeItem(i)} disabled={loading} className="ml-auto text-gray-300 hover:text-red-400 transition-colors shrink-0 disabled:opacity-50">
                                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" /></svg>
                                                     </button>
                                                 </div>
+                                                {(item.type === 'hover' || item.type === 'click') && (
+                                                    <div className="mt-2.5 ml-6">
+                                                        <input disabled={loading} className={smInput} placeholder="CSS selector" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
+                                                    </div>
+                                                )}
                                                 {item.type === 'search' && (
                                                     <div className="mt-2.5 ml-6 space-y-2">
-                                                        <input disabled={loading} className={smInput} placeholder="CSS selector  (e.g. input[name='q'])" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
-                                                        <input disabled={loading} className={smInput} placeholder="Search query  (e.g. shoes)" value={item.query} onChange={e => updateItem(i, 'query', e.target.value)} />
+                                                        <input disabled={loading} className={smInput} placeholder="CSS selector" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
+                                                        <input disabled={loading} className={smInput} placeholder="Search query" value={item.query} onChange={e => updateItem(i, 'query', e.target.value)} />
+                                                        <input disabled={loading} className={smInput} placeholder="Submit button (optional)" value={item.submitSelector || ''} onChange={e => {
+                                                            // A non-empty submit button always takes priority server-side, so keep the
+                                                            // checkbox's state in sync rather than leaving it checked-but-disabled and
+                                                            // silently ignored.
+                                                            const copy = [...sequence]
+                                                            copy[i] = { ...copy[i], submitSelector: e.target.value, ...(e.target.value.trim() ? { pressEnter: false } : {}) }
+                                                            setSequence(copy)
+                                                        }} />
+                                                        <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                                                            <input type="checkbox" disabled={loading || !!(item.submitSelector || '').trim()}
+                                                                checked={!!item.pressEnter} onChange={e => updateItem(i, 'pressEnter', e.target.checked)} />
+                                                            Press Enter to submit (used only if no submit button is set above)
+                                                        </label>
                                                     </div>
                                                 )}
                                                 {item.type === 'login' && (

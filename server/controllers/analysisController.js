@@ -7,6 +7,13 @@ import analysisModel from '../models/analysisModel.js';
 
 // Keep in sync with STEP_TIME / PAGE_LOAD_ESTIMATE_SECONDS / LIGHTHOUSE_AUDIT_SECONDS on the client (Home.jsx / AppContext.jsx)
 const STEP_TIME_SECONDS = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3 };
+// A search step's flat estimate above assumes no submit — a submit button or Enter
+// checkbox adds a navigation wait, same ballpark as login's, so budget it like login
+// instead of undercounting it as a plain 2s type-and-click.
+const stepTimeSeconds = (item) =>
+    item.type === 'search' && (item.submitSelector || item.pressEnter)
+        ? STEP_TIME_SECONDS.login
+        : (STEP_TIME_SECONDS[item.type] || 1);
 const PAGE_LOAD_ESTIMATE_SECONDS = 8;
 const LIGHTHOUSE_AUDIT_SECONDS = 7;
 
@@ -99,12 +106,28 @@ async function runStep(page, step) {
             if (el) {
                 await el.click();
                 await el.type(step.query);
+            } else {
+                return `Search: "${step.selector}" not found`;
+            }
+            // Submitting is optional — some sites search on Enter, some need a button
+            // click, and some don't need submitting at all (e.g. live-filtering a list).
+            // A submit button, if given, takes priority over pressing Enter — the client
+            // already disables the Enter checkbox once a button selector is entered.
+            if (step.submitSelector) {
+                const submitEl = await page.waitForSelector(step.submitSelector, { timeout: 10000 }).catch(() => null);
+                if (submitEl) {
+                    await Promise.all([
+                        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {}),
+                        submitEl.click(),
+                    ]);
+                } else {
+                    return `Search: submit button "${step.submitSelector}" not found`;
+                }
+            } else if (step.pressEnter) {
                 await Promise.all([
                     page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {}),
                     page.keyboard.press('Enter'),
                 ]);
-            } else {
-                return `Search: "${step.selector}" not found`;
             }
             break;
         }
@@ -428,7 +451,7 @@ const analyzeWebsite = async (req, res) => {
         } else {
             const actionSeconds = sequence
                 .filter(item => item.type !== 'analyse')
-                .reduce((sum, item) => sum + (STEP_TIME_SECONDS[item.type] || 1), 0);
+                .reduce((sum, item) => sum + stepTimeSeconds(item), 0);
 
             const captureSeconds = sequence
                 .filter(item => item.type === 'analyse')
