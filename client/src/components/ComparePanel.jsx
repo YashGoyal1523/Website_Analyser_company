@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
     LineChart, Line, AreaChart, Area,
     XAxis, YAxis, CartesianGrid, Tooltip,
-    ResponsiveContainer, Legend, ReferenceLine,
+    ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { lighthouseMetrics } from '../assets/assets'
 import { buildBlocks, withTiming, formatElapsed } from '../utils/blocks'
@@ -360,7 +360,6 @@ const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, tra
                             <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
                             <YAxis hide domain={zoomedDomain(chartData, ['A', 'B'], minSpan)} />
                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
-                            <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 10 }} formatter={v => v === 'A' ? 'Scan A' : 'Scan B'} />
                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
                             <Line type="monotone" dataKey="A" stroke={COLOR_A} strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
                             <Line type="monotone" dataKey="B" stroke={COLOR_B} strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
@@ -597,7 +596,6 @@ const ComparePanel = ({ dataA, dataB }) => {
                                             <XAxis dataKey="run" {...intervalAxisProps} ticks={heapTicks} />
                                             <YAxis hide domain={zoomedDomain(heapData, ['A', 'B'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
-                                            <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 10 }} formatter={v => v === 'A' ? 'Scan A' : 'Scan B'} />
                                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
                                             <Area type="monotone" dataKey="A" stroke={COLOR_A} fill="url(#gradA)" strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
                                             <Area type="monotone" dataKey="B" stroke={COLOR_B} fill="url(#gradB)" strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
@@ -630,7 +628,6 @@ const ComparePanel = ({ dataA, dataB }) => {
                                             <XAxis dataKey="run" {...intervalAxisProps} ticks={procMemTicks} />
                                             <YAxis hide domain={zoomedDomain(procMemData, ['A', 'B'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
-                                            <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 10 }} formatter={v => v === 'A' ? 'Scan A' : 'Scan B'} />
                                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
                                             <Area type="monotone" dataKey="A" stroke={COLOR_A} fill="url(#procGradA)" strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
                                             <Area type="monotone" dataKey="B" stroke={COLOR_B} fill="url(#procGradB)" strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
