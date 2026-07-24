@@ -517,7 +517,7 @@ const Home = () => {
                                                     <div className="mt-2.5 ml-6 space-y-2">
                                                         <input disabled={loading} className={smInput} placeholder="CSS selector" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
                                                         <input disabled={loading} className={smInput} placeholder="Search query" value={item.query} onChange={e => updateItem(i, 'query', e.target.value)} />
-                                                        <input disabled={loading} className={smInput} placeholder="Submit button (optional)" value={item.submitSelector || ''} onChange={e => {
+                                                        <input disabled={loading} className={smInput} placeholder="Submit button" value={item.submitSelector || ''} onChange={e => {
                                                             // A non-empty submit button always takes priority server-side, so keep the
                                                             // checkbox's state in sync rather than leaving it checked-but-disabled and
                                                             // silently ignored.
@@ -530,6 +530,7 @@ const Home = () => {
                                                                 checked={!!item.pressEnter} onChange={e => updateItem(i, 'pressEnter', e.target.checked)} />
                                                             Press Enter to submit (used only if no submit button is set above)
                                                         </label>
+                                                        <p className="text-xs text-gray-400">Leave both unset if the site searches live as you type, with nothing to submit</p>
                                                     </div>
                                                 )}
                                                 {item.type === 'login' && (
