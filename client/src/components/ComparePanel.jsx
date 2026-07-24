@@ -5,12 +5,18 @@ import {
     ResponsiveContainer, Legend, ReferenceLine,
 } from 'recharts'
 import { lighthouseMetrics } from '../assets/assets'
-import { buildBlocks, withTiming } from '../utils/blocks'
+import { buildBlocks, withTiming, formatElapsed } from '../utils/blocks'
 
 const COLOR_A = '#6366f1'
 const COLOR_B = '#f59e0b'
 
 /* ── helpers  ─────────────────────────────────── */
+
+// Minimum Y-axis span per metric family (see zoomedDomain below) — how tight the axis
+// is allowed to zoom before a flat-looking line is just noise being exaggerated.
+const MIN_SPAN_MS    = 40  // Script/Task/Layout Duration
+const MIN_SPAN_MB    = 2   // JS Heap / Process Memory
+const MIN_SPAN_COUNT = 20  // DOM Nodes / Event Listeners
 
 const tooltipStyle = {
     // whiteSpace overrides recharts' own default of 'nowrap', which otherwise
@@ -41,7 +47,70 @@ const intervalAxisProps = {
 }
 // Used only inside the fixed y-axis panel's own chart, to keep its x-scale/margins
 // identical to the scrollable chart without rendering a second visible x-axis.
-const hiddenXAxisProps = { type: 'number', domain: ['dataMin', 'dataMax'], hide: true }
+// hide:true skips reserving the axis's layout height entirely (regardless of the height
+// prop's value), while the real chart's visible XAxis does reserve its default 30px — so
+// the two side-by-side charts ended up with different plot heights despite identical
+// margins, and this panel's "0" gridline sat 30px below the real chart's. Disabling the
+// visible pieces individually (instead of `hide`) keeps this axis "active" for layout so
+// both charts reserve the same space, while still rendering nothing.
+const hiddenXAxisProps = { type: 'number', domain: ['dataMin', 'dataMax'], tick: false, axisLine: false, tickLine: false }
+
+const Y_TICK_COUNT = 5
+
+// Rounds a rough step (span / (tickCount-1)) to a "nice" 1/2/5 × power-of-ten value.
+const niceStep = (span) => {
+    const rough = span / (Y_TICK_COUNT - 1)
+    if (rough <= 0) return 1
+    const exp = Math.floor(Math.log10(rough))
+    const base = 10 ** exp
+    const frac = rough / base
+    const niceFrac = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10
+    return niceFrac * base
+}
+
+// Zooms the axis to the data's actual range (with headroom) rather than forcing a 0
+// baseline — for a metric like Task Duration hovering at 60-65ms, a 0-800ms axis
+// flattens a real 5ms drift into an invisible sliver. The one thing that makes zooming
+// risky is a metric that's naturally just noisy — a ±2ms wobble in an otherwise flat
+// line would get blown up into what looks like a dramatic spike if the domain zoomed in
+// arbitrarily tight. minSpan is the floor against that: the axis never zooms in past a
+// range of that size, however flat the actual data is, so jitter can't be mistaken for
+// a trend. Values here can't go negative, so the low end never drops below 0 even when
+// headroom would otherwise push it there.
+//
+// Ticks are computed here too, from the same step, instead of leaving Recharts to pick
+// its own — its internal "nice step" algorithm doesn't use our 1/2/5 rule, so a domain
+// boundary we've already rounded (say, top = 500) can end up out of step with where its
+// own tick generator wants to land (stepping by 150: 0, 150, 300, 450, 600) — 600 gets
+// clipped for exceeding our domain, and the survivor closest to the boundary (450) then
+// gets dropped too for sitting too close to the 500 label, leaving uneven gaps. Deriving
+// the step and the domain together means there's nothing left for the two to disagree on.
+const zoomedTicks = (data, keys, minSpan) => {
+    const values = data.flatMap(d => keys.map(k => d[k])).filter(v => typeof v === 'number' && !Number.isNaN(v))
+    let lo = 0
+    let hi = minSpan
+    if (values.length) {
+        lo = Math.min(...values)
+        hi = Math.max(...values)
+        if (hi - lo < minSpan) {
+            const pad = (minSpan - (hi - lo)) / 2
+            lo -= pad
+            hi += pad
+        }
+        const headroom = (hi - lo) * 0.1
+        lo = Math.max(0, lo - headroom)
+        hi += headroom
+    }
+    const step = niceStep(hi - lo)
+    const niceLo = Math.max(0, Math.floor(lo / step) * step)
+    // Round off float dust (e.g. 0.1 + 0.2) rather than trusting raw arithmetic.
+    return Array.from({ length: Y_TICK_COUNT }, (_, i) => Math.round((niceLo + step * i) * 100) / 100)
+}
+
+const zoomedDomain = (data, keys, minSpan) => {
+    const ticks = zoomedTicks(data, keys, minSpan)
+    return [ticks[0], ticks[ticks.length - 1]]
+}
 
 // Caption shown once, centered under the whole chart (fixed axis + scroll area) —
 // stays put regardless of horizontal scroll position, unlike an axis label baked
@@ -108,14 +177,15 @@ const ChartScroll = ({ tickCount, children }) => {
 // never scrolls off screen. Needs invisible series matching the real chart's
 // dataKey(s) — Recharts computes an "auto" domain from the plotted series, not
 // the raw data, so without them this axis's scale wouldn't match the real chart.
-const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false }) => {
+const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false, minSpan }) => {
     const Chart = area ? AreaChart : LineChart
     const Series = area ? Area : Line
     return (
         <ResponsiveContainer className="shrink-0" width={width} height={height}>
             <Chart data={data} margin={{ top: 10, bottom: 22, right: 0, left: 0 }}>
                 <XAxis dataKey="run" {...hiddenXAxisProps} />
-                <YAxis {...axisProps} unit={unit} tickFormatter={tickFormatter} width={width} domain={['auto', 'auto']} />
+                <YAxis {...axisProps} unit={unit} tickFormatter={tickFormatter} width={width}
+                    domain={zoomedDomain(data, series, minSpan)} ticks={zoomedTicks(data, series, minSpan)} />
                 {series.map(dataKey => (
                     <Series key={dataKey} dataKey={dataKey} stroke="none" fill="none" dot={false} isAnimationActive={false} connectNulls />
                 ))}
@@ -271,7 +341,7 @@ const BlockDividers = ({ blocksA = [], blocksB = [] }) => (
     </>
 )
 
-const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, transform, unit, height = 180, blocksA, blocksB }) => {
+const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, transform, unit, height = 180, blocksA, blocksB, minSpan }) => {
     const chartData = buildMergedData(dataA, dataB, dataKey, transform, urlA, urlB)
     const ticks = chartData.map(d => d.run)
     const avgAVal = avg(chartData, 'A')
@@ -282,13 +352,13 @@ const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, tra
     return (
         <ChartCard title={title} subtitle={subtitle} winner={winner} avgA={fmtAvg(avgAVal)} avgB={fmtAvg(avgBVal)} unit={unit}>
             <div className="flex">
-                <FixedYAxis data={chartData} series={['A', 'B']} unit={unit} height={height} />
+                <FixedYAxis data={chartData} series={['A', 'B']} unit={unit} height={height} minSpan={minSpan} />
                 <ChartScroll tickCount={ticks.length}>
                     <ResponsiveContainer width="100%" height={height}>
                         <LineChart data={chartData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                             <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
-                            <YAxis hide domain={['auto', 'auto']} />
+                            <YAxis hide domain={zoomedDomain(chartData, ['A', 'B'], minSpan)} />
                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
                             <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 10 }} formatter={v => v === 'A' ? 'Scan A' : 'Scan B'} />
                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
@@ -372,7 +442,10 @@ const ComparePanel = ({ dataA, dataB }) => {
                             <p className="text-sm font-semibold text-gray-900 truncate mb-1" title={dataA.url}>
                                 {dataA.url.replace(/^https?:\/\//, '')}
                             </p>
-                            <p className="text-xs text-gray-400">{fmtDate(dataA.createdAt)}</p>
+                            <p className="text-xs text-gray-400">
+                                {fmtDate(dataA.createdAt)}
+                                {dataA.totalDuration != null && ` · ${formatElapsed(dataA.totalDuration)}`}
+                            </p>
                         </div>
                         <div className="flex items-center justify-center">
                             <span className="text-sm font-bold text-gray-300">vs</span>
@@ -388,7 +461,10 @@ const ComparePanel = ({ dataA, dataB }) => {
                             <p className="text-sm font-semibold text-gray-900 truncate mb-1" title={dataB.url}>
                                 {dataB.url.replace(/^https?:\/\//, '')}
                             </p>
-                            <p className="text-xs text-gray-400">{fmtDate(dataB.createdAt)}</p>
+                            <p className="text-xs text-gray-400">
+                                {fmtDate(dataB.createdAt)}
+                                {dataB.totalDuration != null && ` · ${formatElapsed(dataB.totalDuration)}`}
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -484,26 +560,26 @@ const ComparePanel = ({ dataA, dataB }) => {
                             </svg>
                         }
                         title="Runtime Monitoring"
-                        subtitle="Dual-line charts — Scan A (indigo) vs Scan B (amber)"
+                        subtitle="Dual-line charts: Scan A (indigo) vs Scan B (amber)"
                     />
 
                     <div className="flex flex-col gap-4">
 
                         <DualLineChart title="Script Duration" subtitle="JS execution time (ms)"
-                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="scriptDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" />
+                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="scriptDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" minSpan={MIN_SPAN_MS} />
 
                         <DualLineChart title="Task Duration" subtitle="Main-thread tasks (ms)"
-                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="taskDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" />
+                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="taskDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" minSpan={MIN_SPAN_MS} />
 
                         {/* Layout — full */}
                         <DualLineChart title="Layout Duration" subtitle="Layout & paint time (ms)"
-                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="layoutDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" height={200} />
+                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="layoutDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" height={200} minSpan={MIN_SPAN_MS} />
 
                         {/* Heap memory — full, area */}
                         <ChartCard title="JS Heap Memory" subtitle="JavaScript memory usage (MB)"
                             winner={heapWinner} avgA={heapAvgA !== null ? +heapAvgA.toFixed(2) : null} avgB={heapAvgB !== null ? +heapAvgB.toFixed(2) : null} unit=" MB">
                             <div className="flex">
-                                <FixedYAxis data={heapData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area />
+                                <FixedYAxis data={heapData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
                                 <ChartScroll tickCount={heapTicks.length}>
                                     <ResponsiveContainer width="100%" height={220}>
                                         <AreaChart data={heapData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
@@ -519,7 +595,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                                             <XAxis dataKey="run" {...intervalAxisProps} ticks={heapTicks} />
-                                            <YAxis hide domain={['auto', 'auto']} />
+                                            <YAxis hide domain={zoomedDomain(heapData, ['A', 'B'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
                                             <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 10 }} formatter={v => v === 'A' ? 'Scan A' : 'Scan B'} />
                                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
@@ -536,7 +612,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                         <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of each scan's Chrome renderer process (MB)"
                             winner={procMemWinner} avgA={procMemAvgA !== null ? +procMemAvgA.toFixed(2) : null} avgB={procMemAvgB !== null ? +procMemAvgB.toFixed(2) : null} unit=" MB">
                             <div className="flex">
-                                <FixedYAxis data={procMemData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area />
+                                <FixedYAxis data={procMemData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
                                 <ChartScroll tickCount={procMemTicks.length}>
                                     <ResponsiveContainer width="100%" height={220}>
                                         <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
@@ -552,7 +628,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                                             <XAxis dataKey="run" {...intervalAxisProps} ticks={procMemTicks} />
-                                            <YAxis hide domain={['auto', 'auto']} />
+                                            <YAxis hide domain={zoomedDomain(procMemData, ['A', 'B'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
                                             <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 10 }} formatter={v => v === 'A' ? 'Scan A' : 'Scan B'} />
                                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
@@ -566,10 +642,10 @@ const ComparePanel = ({ dataA, dataB }) => {
                         </ChartCard>
 
                         <DualLineChart title="DOM Nodes" subtitle="Document node count"
-                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="domNodes" />
+                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="domNodes" minSpan={MIN_SPAN_COUNT} />
 
                         <DualLineChart title="Event Listeners" subtitle="Active JS listeners"
-                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="jsEventListeners" />
+                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="jsEventListeners" minSpan={MIN_SPAN_COUNT} />
 
                     </div>
                 </section>

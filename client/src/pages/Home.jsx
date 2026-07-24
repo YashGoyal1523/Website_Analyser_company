@@ -343,7 +343,7 @@ const Home = () => {
                                 <div className="px-7 py-6 border-b border-gray-100">
                                     <p className="text-sm font-semibold text-gray-700">Live Session</p>
                                     <p className="text-xs text-gray-400 mt-0.5 mb-4">
-                                        A Chrome window will open — interact with the site yourself. Runtime metrics are captured automatically in the background until Total Duration ends.
+                                        A Chrome window will open, interact with the site yourself. Runtime metrics are captured automatically in the background until Total Duration ends.
                                     </p>
 
                                     <div className="flex items-center gap-2 bg-purple-50 border border-purple-100 rounded-xl px-4 py-2.5 flex-wrap">
@@ -363,7 +363,7 @@ const Home = () => {
                                             disabled={loading}
                                             className="w-14 bg-white border border-purple-200 rounded-lg px-2 py-1 text-sm text-center font-semibold text-purple-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
                                         />
-                                        <span className="text-xs text-gray-500">s — how often runtime metrics are sampled</span>
+                                        <span className="text-xs text-gray-500">s : how often runtime metrics are sampled</span>
                                     </div>
 
                                     {Number(intervalTime) >= 1 && totalDurationSeconds >= 1 && (
@@ -380,7 +380,7 @@ const Home = () => {
                                 <div className="flex items-center justify-between mb-4">
                                     <div>
                                         <p className="text-sm font-semibold text-gray-700">Sequence</p>
-                                        <p className="text-xs text-gray-400 mt-0.5">Mix actions and analysis captures — executed in order</p>
+                                        <p className="text-xs text-gray-400 mt-0.5">Mix actions and analysis captures: executed in order</p>
                                     </div>
                                     {url && (durationMin !== '' || durationSec !== '') && (
                                         <span className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${overBudget ? 'text-red-600 bg-red-50 border border-red-100' : 'text-blue-600 bg-blue-50 border border-blue-100'}`}>
@@ -410,7 +410,7 @@ const Home = () => {
                                             disabled={loading}
                                             className="w-14 bg-white border border-purple-200 rounded-lg px-2 py-1 text-sm text-center font-semibold text-purple-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
                                         />
-                                        <span className="text-xs text-gray-500">s — applied to every Analyse block below</span>
+                                        <span className="text-xs text-gray-500">s : applied to every Analyse block below</span>
                                     </div>
                                 )}
 
@@ -422,7 +422,7 @@ const Home = () => {
                                             </svg>
                                         </div>
                                         <p className="text-sm text-gray-500 font-medium">No sequence yet</p>
-                                        <p className="text-xs text-gray-400 mt-1">Optional — add steps to interact with the page and/or an Analyse block to capture runtime metrics. Leave empty to just run Lighthouse.</p>
+                                        <p className="text-xs text-gray-400 mt-1">Optional : add steps to interact with the page and/or an Analyse block to capture runtime metrics. Leave empty to just run Lighthouse.</p>
                                     </div>
                                 )}
 
@@ -519,7 +519,7 @@ const Home = () => {
                                             <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" strokeLinecap="round" strokeLinejoin="round" />
                                         </svg>
                                         <p className="text-xs text-amber-700 leading-relaxed">
-                                            You have a <strong>Login</strong> step — add a logout or navigation step at the end so each run starts fresh.
+                                            You have a <strong>Login</strong> step: add a logout or navigation step at the end so each run starts fresh.
                                         </p>
                                     </div>
                                 )}
@@ -619,6 +619,7 @@ const Home = () => {
                                                 </div>
                                                 <p className="text-xs text-gray-400 mt-0.5">
                                                     {dateStr} · {timeStr}
+                                                    {a.totalDuration != null && ` · ${formatDuration(a.totalDuration)}`}
                                                 </p>
 
                                                 <div className="flex items-center gap-3 mt-2.5">

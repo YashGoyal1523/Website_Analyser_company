@@ -151,7 +151,7 @@ const History = () => {
                                 <>Select <strong>1 more scan</strong> to compare.</>
                             )}
                             {selectedIds.length === 2 && (
-                                <>2 scans selected — click <strong>Compare Selected</strong> to view.</>
+                                <>2 scans selected: click <strong>Compare Selected</strong> to view.</>
                             )}
                         </p>
                         {selectedIds.length > 0 && (

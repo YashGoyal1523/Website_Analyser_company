@@ -137,12 +137,28 @@ async function getRendererMemoryMB(client) {
     }
 }
 
-async function runLighthouse(url) {
-    const lhBrowser = await puppeteer.launch({
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+async function runLighthouse(url, res) {
+    // req's 'close' event fires as soon as the request body is fully received — which
+    // happens almost instantly, regardless of whether the client is still around — so it
+    // can't tell us anything about the client leaving. res's 'close' event is the real
+    // signal: per Node's docs it fires when the underlying connection was terminated
+    // *before* the response could be sent, which is exactly "client walked away mid-request."
+    // The listener is attached before the first await so a disconnect during browser launch
+    // isn't missed.
+    let clientDisconnected = false;
+    let lhBrowser;
+    const onClientClose = () => {
+        if (res.writableEnded) return; // connection closing after a normal response, not a real disconnect
+        clientDisconnected = true;
+        lhBrowser?.close().catch(() => {});
+    };
+    res?.on('close', onClientClose);
     try {
+        lhBrowser = await puppeteer.launch({
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        if (clientDisconnected) return null;
         const lhr = await lighthouse(url, {
             port: new URL(lhBrowser.wsEndpoint()).port,
             output: 'json',
@@ -158,20 +174,42 @@ async function runLighthouse(url) {
             seoScore:           Math.round(lhr.lhr.categories.seo.score * 100),
             accessibilityScore: Math.round(lhr.lhr.categories.accessibility.score * 100),
         };
+    } catch (e) {
+        if (clientDisconnected) return null;
+        throw e;
     } finally {
-        await lhBrowser.close();
+        res?.off('close', onClientClose);
+        // Closing an already-closed browser (disconnect path above already closed it)
+        // is expected and fine; anything else is worth a trace since it's otherwise invisible.
+        try { await lhBrowser?.close(); } catch (e) { console.error('lhBrowser.close() failed:', e.message); }
     }
 }
 
-async function runSequence(url, sequence, totalDurationMs, mode, req) {
+async function runSequence(url, sequence, totalDurationMs, mode, res) {
     const results = [];
     const warnings = [];
     let runCounter = 0;
     let loginFailed = false;
     let browserDisconnected = false;
-    let onClientClose;
+    let browser;
 
-    const browser = await puppeteer.launch({
+    // Attached before any await (including the browser launch below) so a disconnect
+    // during startup isn't missed. See runLighthouse for why this listens on `res`
+    // rather than `req`.
+    let clientDisconnected = false;
+    let resolveDisconnect;
+    const disconnected = new Promise(resolve => { resolveDisconnect = resolve; });
+    const onClientClose = () => {
+        if (res.writableEnded) return; // connection closing after a normal response, not a real disconnect
+        clientDisconnected = true;
+        resolveDisconnect();
+        // Close immediately rather than waiting for the Promise.race below, so a disconnect
+        // during page load (before that race even starts) doesn't leave Chrome running.
+        browser?.close().catch(() => {});
+    };
+    res?.on('close', onClientClose);
+
+    browser = await puppeteer.launch({
         headless: mode === 'manual' ? false : 'new',
         // Without this, Puppeteer pins the page viewport to its 800x600 default
         // regardless of the actual Chrome window size — null lets the page fill
@@ -185,6 +223,10 @@ async function runSequence(url, sequence, totalDurationMs, mode, req) {
             ...(mode === 'manual' ? ['--start-maximized'] : []),
         ]
     });
+    if (clientDisconnected) {
+        res?.off('close', onClientClose);
+        return { results, warnings };
+    }
     try {
         // Reuse Chromium's own default tab instead of opening a second one via
         // newPage() — with two tabs open, SystemInfo.getProcessInfo can't tell which
@@ -209,7 +251,14 @@ async function runSequence(url, sequence, totalDurationMs, mode, req) {
             }
         });
 
-        await page.goto(url, { waitUntil: 'networkidle2' });
+        try {
+            await page.goto(url, { waitUntil: 'networkidle2' });
+        } catch (e) {
+            // A disconnect mid-load closes the browser above, which makes this reject —
+            // that's expected and not a real failure, so don't let it escape as one.
+            if (clientDisconnected) return { results, warnings };
+            throw e;
+        }
 
         const runAllItems = async () => {
             for (const item of sequence) {
@@ -285,14 +334,6 @@ async function runSequence(url, sequence, totalDurationMs, mode, req) {
         // the sequence (its in-flight step, if any, gets cut short once the browser closes
         // below) instead of only checking after the fact.
         let timedOut = false;
-        // A page refresh (or the tab being closed) aborts the client's request, but
-        // Express has no idea by default — without this, the sequence rides out the
-        // full Total Duration server-side with nobody left to receive the result.
-        let clientDisconnected = false;
-        let resolveDisconnect;
-        const disconnected = new Promise(resolve => { resolveDisconnect = resolve; });
-        onClientClose = () => { clientDisconnected = true; resolveDisconnect(); };
-        req?.on('close', onClientClose);
 
         const deadlineMs = Math.max(0, totalDurationMs - (Date.now() - sessionStart));
         const timeout = sleep(deadlineMs).then(() => { timedOut = true; });
@@ -313,7 +354,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, req) {
             if (remainingSessionTime > 0) await sleep(remainingSessionTime);
         }
     } finally {
-        req?.off('close', onClientClose);
+        res?.off('close', onClientClose);
         // Closing an already-closed browser (e.g. the user closed the window) is expected
         // and fine; anything else is worth a trace since it's otherwise invisible.
         try { await browser.close(); } catch (e) { console.error('browser.close() failed:', e.message); }
@@ -333,16 +374,21 @@ const redactSequence = (sequence) =>
         return rest;
     });
 
-async function analyzeOverTime(url, sequence, totalDurationMs, mode, req) {
+async function analyzeOverTime(url, sequence, totalDurationMs, mode, res) {
     const [lighthouseData, { results: runtimeData, warnings }] = await Promise.all([
-        runLighthouse(url),
-        runSequence(url, sequence, totalDurationMs, mode, req),
+        runLighthouse(url, res),
+        runSequence(url, sequence, totalDurationMs, mode, res),
     ]);
 
     return { url, totalRuns: runtimeData.length, lighthouseData, runtimeData, warnings };
 }
 
 const analyzeWebsite = async (req, res) => {
+    // A reload/close mid-analysis is treated as a full cancel: nothing gets saved and
+    // nothing gets sent back, rather than trying to persist whatever partial data was
+    // captured before the disconnect.
+    let clientLeft = false;
+    res.on('close', () => { if (!res.writableEnded) clientLeft = true; });
     try {
         const { url, sequence = [], totalDuration, mode: rawMode } = req.body;
         const mode = rawMode === 'manual' ? 'manual' : 'auto';
@@ -398,7 +444,8 @@ const analyzeWebsite = async (req, res) => {
             }
         }
 
-        const data = await analyzeOverTime(url, sequence, totalDurationSeconds * 1000, mode, req);
+        const data = await analyzeOverTime(url, sequence, totalDurationSeconds * 1000, mode, res);
+        if (clientLeft) return; // nothing to save or send — the client already cancelled
         const { warnings, ...dbData } = data;
         // The raw `sequence` (with real credentials, needed above to drive the login
         // step) must never be persisted or sent back — only this redacted copy is.
@@ -407,6 +454,7 @@ const analyzeWebsite = async (req, res) => {
         return res.json({ success: true, data: { ...data, sequence: safeSequence, mode, totalDuration: totalDurationSeconds } });
 
     } catch (error) {
+        if (clientLeft) return; // the disconnect itself can surface as a rejected promise here — expected, not a real failure
         console.error('Analysis error:', error.message);
         return res.status(500).json({ success: false, message: 'Failed to analyze URL', details: error.message });
     }

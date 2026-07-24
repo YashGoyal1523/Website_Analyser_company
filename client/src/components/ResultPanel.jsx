@@ -5,9 +5,15 @@ import {
     ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { lighthouseMetrics } from '../assets/assets'
-import { buildBlocks, withTiming } from '../utils/blocks'
+import { buildBlocks, withTiming, formatElapsed } from '../utils/blocks'
 
 /* ── helpers ─────────────────────────────────────────────── */
+
+// Minimum Y-axis span per metric family (see zoomedDomain below) — how tight the axis
+// is allowed to zoom before a flat-looking line is just noise being exaggerated.
+const MIN_SPAN_MS    = 40  // Script/Task/Layout Duration
+const MIN_SPAN_MB    = 2   // JS Heap / Process Memory
+const MIN_SPAN_COUNT = 20  // DOM Nodes / Event Listeners
 
 const getStatus = (key, value) => {
     const m = lighthouseMetrics.find(m => m.key === key)
@@ -61,7 +67,70 @@ const intervalAxisProps = {
 }
 // Used only inside the fixed y-axis panel's own chart, to keep its x-scale/margins
 // identical to the scrollable chart without rendering a second visible x-axis.
-const hiddenXAxisProps = { type: 'number', domain: ['dataMin', 'dataMax'], hide: true }
+// hide:true skips reserving the axis's layout height entirely (regardless of the height
+// prop's value), while the real chart's visible XAxis does reserve its default 30px — so
+// the two side-by-side charts ended up with different plot heights despite identical
+// margins, and this panel's "0" gridline sat 30px below the real chart's. Disabling the
+// visible pieces individually (instead of `hide`) keeps this axis "active" for layout so
+// both charts reserve the same space, while still rendering nothing.
+const hiddenXAxisProps = { type: 'number', domain: ['dataMin', 'dataMax'], tick: false, axisLine: false, tickLine: false }
+
+const Y_TICK_COUNT = 5
+
+// Rounds a rough step (span / (tickCount-1)) to a "nice" 1/2/5 × power-of-ten value.
+const niceStep = (span) => {
+    const rough = span / (Y_TICK_COUNT - 1)
+    if (rough <= 0) return 1
+    const exp = Math.floor(Math.log10(rough))
+    const base = 10 ** exp
+    const frac = rough / base
+    const niceFrac = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10
+    return niceFrac * base
+}
+
+// Zooms the axis to the data's actual range (with headroom) rather than forcing a 0
+// baseline — for a metric like Task Duration hovering at 60-65ms, a 0-800ms axis
+// flattens a real 5ms drift into an invisible sliver. The one thing that makes zooming
+// risky is a metric that's naturally just noisy — a ±2ms wobble in an otherwise flat
+// line would get blown up into what looks like a dramatic spike if the domain zoomed in
+// arbitrarily tight. minSpan is the floor against that: the axis never zooms in past a
+// range of that size, however flat the actual data is, so jitter can't be mistaken for
+// a trend. Values here can't go negative, so the low end never drops below 0 even when
+// headroom would otherwise push it there.
+//
+// Ticks are computed here too, from the same step, instead of leaving Recharts to pick
+// its own — its internal "nice step" algorithm doesn't use our 1/2/5 rule, so a domain
+// boundary we've already rounded (say, top = 500) can end up out of step with where its
+// own tick generator wants to land (stepping by 150: 0, 150, 300, 450, 600) — 600 gets
+// clipped for exceeding our domain, and the survivor closest to the boundary (450) then
+// gets dropped too for sitting too close to the 500 label, leaving uneven gaps. Deriving
+// the step and the domain together means there's nothing left for the two to disagree on.
+const zoomedTicks = (data, keys, minSpan) => {
+    const values = data.flatMap(d => keys.map(k => d[k])).filter(v => typeof v === 'number' && !Number.isNaN(v))
+    let lo = 0
+    let hi = minSpan
+    if (values.length) {
+        lo = Math.min(...values)
+        hi = Math.max(...values)
+        if (hi - lo < minSpan) {
+            const pad = (minSpan - (hi - lo)) / 2
+            lo -= pad
+            hi += pad
+        }
+        const headroom = (hi - lo) * 0.1
+        lo = Math.max(0, lo - headroom)
+        hi += headroom
+    }
+    const step = niceStep(hi - lo)
+    const niceLo = Math.max(0, Math.floor(lo / step) * step)
+    // Round off float dust (e.g. 0.1 + 0.2) rather than trusting raw arithmetic.
+    return Array.from({ length: Y_TICK_COUNT }, (_, i) => Math.round((niceLo + step * i) * 100) / 100)
+}
+
+const zoomedDomain = (data, keys, minSpan) => {
+    const ticks = zoomedTicks(data, keys, minSpan)
+    return [ticks[0], ticks[ticks.length - 1]]
+}
 
 // Caption shown once, centered under the whole chart (fixed axis + scroll area) —
 // stays put regardless of horizontal scroll position, unlike an axis label baked
@@ -128,14 +197,15 @@ const ChartScroll = ({ tickCount, children }) => {
 // never scrolls off screen. Needs an invisible series matching the real chart's
 // dataKey(s) — Recharts computes an "auto" domain from the plotted series, not
 // the raw data, so without one this axis's scale wouldn't match the real chart.
-const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false }) => {
+const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false, minSpan }) => {
     const Chart = area ? AreaChart : LineChart
     const Series = area ? Area : Line
     return (
         <ResponsiveContainer className="shrink-0" width={width} height={height}>
             <Chart data={data} margin={{ top: 10, bottom: 22, right: 0, left: 0 }}>
                 <XAxis dataKey="run" {...hiddenXAxisProps} />
-                <YAxis {...axisProps} unit={unit} tickFormatter={tickFormatter} width={width} domain={['auto', 'auto']} />
+                <YAxis {...axisProps} unit={unit} tickFormatter={tickFormatter} width={width}
+                    domain={zoomedDomain(data, series, minSpan)} ticks={zoomedTicks(data, series, minSpan)} />
                 {series.map(dataKey => (
                     <Series key={dataKey} dataKey={dataKey} stroke="none" fill="none" dot={false} isAnimationActive={false} />
                 ))}
@@ -238,16 +308,16 @@ const BlockDividers = ({ blocks }) =>
             stroke="#cbd5e1" strokeDasharray="4 3" strokeWidth={1.5} />
     ))
 
-const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = [] }) => (
+const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = [], minSpan }) => (
     <div>
         <div className="flex">
-            <FixedYAxis data={data} series={[dataKey]} unit={unit} height={height} />
+            <FixedYAxis data={data} series={[dataKey]} unit={unit} height={height} minSpan={minSpan} />
             <ChartScroll tickCount={ticks.length}>
                 <ResponsiveContainer width="100%" height={height}>
                     <LineChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                         <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
-                        <YAxis hide domain={['auto', 'auto']} />
+                        <YAxis hide domain={zoomedDomain(data, [dataKey], minSpan)} />
                         <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
                         <BlockDividers blocks={blocks} />
                         <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2}
@@ -311,12 +381,18 @@ const ResultPanel = ({ data }) => {
                     <div className="min-w-0">
                         <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-1">Analysis Results</h1>
                         <p className="text-sm text-blue-600 font-medium truncate">{url}</p>
-                        {(dateLabel || data.mode === 'manual') && (
+                        {(dateLabel || data.totalDuration != null || data.mode === 'manual') && (
                             <div className="flex flex-wrap items-center gap-2 mt-3">
                                 {dateLabel && (
                                     <span className="inline-flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full">
                                         <span className="text-gray-400">⌗</span>
                                         {dateLabel}
+                                    </span>
+                                )}
+                                {data.totalDuration != null && (
+                                    <span className="inline-flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full">
+                                        <span className="text-gray-400">⏱</span>
+                                        {formatElapsed(data.totalDuration)}
                                     </span>
                                 )}
                                 {data.mode === 'manual' && (
@@ -390,20 +466,20 @@ const ResultPanel = ({ data }) => {
                     <div className="flex flex-col gap-4">
 
                         <ChartCard title="Script Duration" subtitle="Time executing JS (ms)">
-                            <MetricLine data={cpuData} dataKey="Script" color="#6366f1" unit="ms" ticks={ticks} blocks={blocks} />
+                            <MetricLine data={cpuData} dataKey="Script" color="#6366f1" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} />
                         </ChartCard>
 
                         <ChartCard title="Task Duration" subtitle="Main-thread task time (ms)">
-                            <MetricLine data={cpuData} dataKey="Task" color="#f59e0b" unit="ms" ticks={ticks} blocks={blocks} />
+                            <MetricLine data={cpuData} dataKey="Task" color="#f59e0b" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} />
                         </ChartCard>
 
                         <ChartCard title="Layout Duration" subtitle="Time spent on layout & paint (ms)">
-                            <MetricLine data={cpuData} dataKey="Layout" color="#ec4899" unit="ms" ticks={ticks} height={200} blocks={blocks} />
+                            <MetricLine data={cpuData} dataKey="Layout" color="#ec4899" unit="ms" ticks={ticks} height={200} blocks={blocks} minSpan={MIN_SPAN_MS} />
                         </ChartCard>
 
                         <ChartCard title="JS Heap Memory" subtitle="JavaScript memory in use (MB)">
                             <div className="flex">
-                                <FixedYAxis data={memData} series={['Heap MB']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area />
+                                <FixedYAxis data={memData} series={['Heap MB']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
                                 <ChartScroll tickCount={ticks.length}>
                                     <ResponsiveContainer width="100%" height={220}>
                                         <AreaChart data={memData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
@@ -415,7 +491,7 @@ const ResultPanel = ({ data }) => {
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                                             <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
-                                            <YAxis hide domain={['auto', 'auto']} />
+                                            <YAxis hide domain={zoomedDomain(memData, ['Heap MB'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
                                             <BlockDividers blocks={blocks} />
                                             <Area type="monotone" dataKey="Heap MB" stroke="#22c55e" fill="url(#heapGrad)"
@@ -429,7 +505,7 @@ const ResultPanel = ({ data }) => {
 
                         <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of the page's Chrome renderer process (MB)">
                             <div className="flex">
-                                <FixedYAxis data={procMemData} series={['Process RSS MB']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area />
+                                <FixedYAxis data={procMemData} series={['Process RSS MB']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
                                 <ChartScroll tickCount={ticks.length}>
                                     <ResponsiveContainer width="100%" height={220}>
                                         <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
@@ -441,7 +517,7 @@ const ResultPanel = ({ data }) => {
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
                                             <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
-                                            <YAxis hide domain={['auto', 'auto']} />
+                                            <YAxis hide domain={zoomedDomain(procMemData, ['Process RSS MB'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
                                             <BlockDividers blocks={blocks} />
                                             <Area type="monotone" dataKey="Process RSS MB" stroke="#f97316" fill="url(#procMemGrad)"
@@ -454,11 +530,11 @@ const ResultPanel = ({ data }) => {
                         </ChartCard>
 
                         <ChartCard title="DOM Nodes" subtitle="Total nodes in the document">
-                            <MetricLine data={domData} dataKey="DOM Nodes" color="#38bdf8" ticks={ticks} blocks={blocks} />
+                            <MetricLine data={domData} dataKey="DOM Nodes" color="#38bdf8" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} />
                         </ChartCard>
 
                         <ChartCard title="Event Listeners" subtitle="Active JS event listeners">
-                            <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} />
+                            <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} />
                         </ChartCard>
 
                     </div>

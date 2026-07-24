@@ -129,9 +129,13 @@ const AppContextProvider = ({ children }) => {
     }
 
     const analyzeWebsite = async (url, sequence = [], totalDuration, mode = 'auto') => {
+        // totalDuration already covers page load server-side — runSequence starts its
+        // clock before page.goto() and subtracts however long that takes from the
+        // capture budget, so the sequence phase takes ~totalDuration end to end, not
+        // totalDuration *plus* another page load on top. Adding PAGE_LOAD_ESTIMATE_SECONDS
+        // here would double-count it.
         const lighthouseEstimate = PAGE_LOAD_ESTIMATE_SECONDS + LIGHTHOUSE_AUDIT_SECONDS
-        const puppeteerEstimate = PAGE_LOAD_ESTIMATE_SECONDS + Number(totalDuration || 0)
-        const total = Math.max(lighthouseEstimate, puppeteerEstimate)
+        const total = Math.max(lighthouseEstimate, Number(totalDuration || 0))
         setProgress({ elapsed: 0, total })
 
         const startedAt = Date.now()

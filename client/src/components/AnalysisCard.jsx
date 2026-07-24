@@ -1,4 +1,5 @@
 import { lighthouseMetrics } from '../assets/assets'
+import { formatElapsed } from '../utils/blocks'
 
 const getStatus = (key, value) => {
     if (value == null) return null
@@ -24,7 +25,7 @@ const METRICS = [
 ]
 
 const AnalysisCard = ({ analysis, onClick, onView, onRerun, onDelete, compareMode = false, isSelected = false }) => {
-    const { url, lighthouseData, createdAt, mode } = analysis
+    const { url, lighthouseData, createdAt, mode, totalDuration } = analysis
     const date    = new Date(createdAt)
     const domain  = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
     const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -64,6 +65,7 @@ const AnalysisCard = ({ analysis, onClick, onView, onRerun, onDelete, compareMod
                         </div>
                         <p className="text-xs text-gray-400 mt-0.5">
                             {dateStr} · {timeStr}
+                            {totalDuration != null && ` · ${formatElapsed(totalDuration)}`}
                         </p>
                     </div>
                 </div>

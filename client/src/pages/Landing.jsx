@@ -16,7 +16,7 @@ const features = [
             </svg>
         ),
         title: 'Lighthouse Audit',
-        desc: 'Every Core Web Vital — LCP, FCP, TTFB, TBT, CLS, Speed Index — measured and colour-coded against real-world thresholds.',
+        desc: 'Every Core Web Vital (LCP, FCP, TTFB, TBT, CLS, Speed Index) measured and colour-coded against real-world thresholds.',
     },
     {
         icon: (
@@ -35,7 +35,7 @@ const features = [
             </svg>
         ),
         title: 'Side-by-side Compare',
-        desc: 'Pick any two past scans and compare them instantly — dual-line charts, metric deltas, and winner badges at a glance.',
+        desc: 'Pick any two past scans and compare them instantly: dual-line charts, metric deltas, and winner badges at a glance.',
     },
 ]
 
@@ -48,7 +48,7 @@ const steps = [
     {
         n: '02',
         title: 'Build your sequence',
-        desc: 'Chain interaction steps — click, scroll, search, login — and drop in Analyse blocks wherever you want metrics captured.',
+        desc: 'Chain interaction steps (click, scroll, search, login) and drop in Analyse blocks wherever you want metrics captured.',
     },
     {
         n: '03',
@@ -113,7 +113,7 @@ const Landing = () => {
                             <svg width="10" height="10" fill="none" stroke="#9ca3af" strokeWidth="2.5" viewBox="0 0 24 24">
                                 <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
                             </svg>
-                            <span className="text-xs text-gray-400">example.com — Analysis Results</span>
+                            <span className="text-xs text-gray-400">example.com · Analysis Results</span>
                         </div>
                     </div>
 
