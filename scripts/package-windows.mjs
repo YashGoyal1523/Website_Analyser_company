@@ -23,8 +23,16 @@ function copyDir(src, dest, { exclude = [] } = {}) {
     if (exclude.includes(entry.name)) continue
     const s = path.join(src, entry.name)
     const d = path.join(dest, entry.name)
-    if (entry.isDirectory()) copyDir(s, d, { exclude })
-    else fs.copyFileSync(s, d)
+    if (entry.isSymbolicLink()) {
+      fs.symlinkSync(fs.readlinkSync(s), d)
+    } else if (entry.isDirectory()) {
+      copyDir(s, d, { exclude })
+    } else if (entry.isFile()) {
+      fs.copyFileSync(s, d)
+    }
+    // Anything else (sockets, FIFOs, device files) isn't copyable and isn't needed in a
+    // static bundle anyway — see the identical helper in package-mac.mjs for why this
+    // can come up (a downloaded browser's crash-handler IPC socket).
   }
 }
 
