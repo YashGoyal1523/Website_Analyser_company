@@ -181,6 +181,9 @@ const Home = () => {
             if (!intervalTime || Number(intervalTime) < 1) {
                 toast.error('Interval time must be at least 1s.'); return
             }
+            if (Number(intervalTime) > totalDurationSeconds) {
+                toast.error('Interval time cannot be longer than Total Duration.'); return
+            }
             const manualSequence = [{ type: 'analyse', intervals: 'unbounded', intervalTime: Number(intervalTime) }]
             const success = await analyzeWebsite(url, manualSequence, totalDurationSeconds, 'manual')
             if (success) navigate('/dashboard/result')
@@ -281,6 +284,7 @@ const Home = () => {
     const recent = userAnalyses.slice(0, 3)
     const canSubmit = mode === 'manual'
         ? !loading && url && totalDurationSeconds >= minDurationSeconds && Number(intervalTime) >= 1
+            && Number(intervalTime) <= totalDurationSeconds
         : !loading && url && totalDurationSeconds >= 1
             && (analyseBlockCount === 0 || Number(intervalTime) >= 1)
             && sequence.filter(i => i.type === 'analyse').every(i => Number(i.intervals) >= 1)
@@ -415,9 +419,15 @@ const Home = () => {
                                     </div>
 
                                     {Number(intervalTime) >= 1 && totalDurationSeconds >= 1 && (
-                                        <p className="text-xs text-gray-400 mt-2">
-                                            ~{Math.floor(totalDurationSeconds / Number(intervalTime))} capture{Math.floor(totalDurationSeconds / Number(intervalTime)) !== 1 ? 's' : ''} over {formatDuration(totalDurationSeconds)}
-                                        </p>
+                                        Number(intervalTime) > totalDurationSeconds ? (
+                                            <p className="text-xs text-red-500 font-medium mt-2">
+                                                Interval time cannot be longer than Total Duration.
+                                            </p>
+                                        ) : (
+                                            <p className="text-xs text-gray-400 mt-2">
+                                                ~{Math.ceil(totalDurationSeconds / Number(intervalTime))} capture{Math.ceil(totalDurationSeconds / Number(intervalTime)) !== 1 ? 's' : ''} over {formatDuration(totalDurationSeconds)}
+                                            </p>
+                                        )
                                     )}
                                 </div>
                             )}

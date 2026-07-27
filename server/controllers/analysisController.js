@@ -594,6 +594,11 @@ const analyzeWebsite = async (req, res) => {
             if (!analyseItem || !(Number(analyseItem.intervalTime) >= 1)) {
                 return res.status(400).json({ success: false, message: 'intervalTime (seconds) is required for a live session' });
             }
+            // Without this, an interval longer than the whole session produces at
+            // most one sample, silently — better to reject it upfront.
+            if (Number(analyseItem.intervalTime) > totalDurationSeconds) {
+                return res.status(400).json({ success: false, message: 'intervalTime cannot be longer than totalDuration' });
+            }
         } else {
             const actionSeconds = sequence
                 .filter(item => item.type !== 'analyse')
