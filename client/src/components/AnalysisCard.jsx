@@ -91,7 +91,7 @@ const AnalysisCard = ({ analysis, onClick, onView, onRerun, onDelete, compareMod
                         <div key={key} className="flex items-center gap-2">
                             <span className="text-xs text-gray-400 font-medium w-7">{label}</span>
                             <span className={`text-sm font-bold ${status ? STATUS_COLOR[status] : 'text-gray-400'}`}>
-                                {value != null ? fmt(value) : '—'}
+                                {value != null ? fmt(value) : 'N/A'}
                             </span>
                             {status && (
                                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${STATUS_BADGE[status]}`}>
@@ -102,7 +102,7 @@ const AnalysisCard = ({ analysis, onClick, onView, onRerun, onDelete, compareMod
                     )
                 })}
 
-                {/* Action buttons — pushed to the right */}
+                {/* Action buttons, pushed to the right */}
                 {!compareMode && (
                     <div className="ml-auto flex items-center gap-2">
                         <button

@@ -12,7 +12,7 @@ const COLOR_B = '#f59e0b'
 
 /* ── helpers  ─────────────────────────────────── */
 
-// Minimum Y-axis span per metric family (see zoomedDomain below) — how tight the axis
+// Minimum Y-axis span per metric family (see zoomedDomain below): how tight the axis
 // is allowed to zoom before a flat-looking line is just noise being exaggerated.
 const MIN_SPAN_MS    = 40  // Script/Task/Layout Duration
 const MIN_SPAN_MB    = 2   // JS Heap / Process Memory
@@ -24,13 +24,13 @@ const tooltipStyle = {
     contentStyle: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.07)', whiteSpace: 'normal' },
     labelStyle: { color: '#111827', fontWeight: 600 },
     itemStyle: { color: '#374151' },
-    // Pin to the top of the chart instead of following the cursor vertically —
-    // with full (non-truncated) URLs the box can span several lines, and
+    // Pin to the top of the chart instead of following the cursor vertically.
+    // With full (non-truncated) URLs the box can span several lines, and
     // tracking the cursor would let it sit right on top of the hovered point.
     position: { y: 0 },
     // Prefer the left side of the cursor. Our charts scroll horizontally past
     // their visible width, and recharts only knows the *full* chart's bounds
-    // (not our external scroll clipping) — placing right-first regularly pushed
+    // (not our external scroll clipping). Placing right-first regularly pushed
     // the box into the not-yet-scrolled-into-view (and thus clipped) region.
     // Everything to the left of the cursor has already been scrolled past, so
     // it's always visible.
@@ -48,7 +48,7 @@ const intervalAxisProps = {
 // Used only inside the fixed y-axis panel's own chart, to keep its x-scale/margins
 // identical to the scrollable chart without rendering a second visible x-axis.
 // hide:true skips reserving the axis's layout height entirely (regardless of the height
-// prop's value), while the real chart's visible XAxis does reserve its default 30px — so
+// prop's value), while the real chart's visible XAxis does reserve its default 30px, so
 // the two side-by-side charts ended up with different plot heights despite identical
 // margins, and this panel's "0" gridline sat 30px below the real chart's. Disabling the
 // visible pieces individually (instead of `hide`) keeps this axis "active" for layout so
@@ -69,9 +69,9 @@ const niceStep = (span) => {
 }
 
 // Zooms the axis to the data's actual range (with headroom) rather than forcing a 0
-// baseline — for a metric like Task Duration hovering at 60-65ms, a 0-800ms axis
+// baseline. For a metric like Task Duration hovering at 60-65ms, a 0-800ms axis
 // flattens a real 5ms drift into an invisible sliver. The one thing that makes zooming
-// risky is a metric that's naturally just noisy — a ±2ms wobble in an otherwise flat
+// risky is a metric that's naturally just noisy: a ±2ms wobble in an otherwise flat
 // line would get blown up into what looks like a dramatic spike if the domain zoomed in
 // arbitrarily tight. minSpan is the floor against that: the axis never zooms in past a
 // range of that size, however flat the actual data is, so jitter can't be mistaken for
@@ -79,9 +79,9 @@ const niceStep = (span) => {
 // headroom would otherwise push it there.
 //
 // Ticks are computed here too, from the same step, instead of leaving Recharts to pick
-// its own — its internal "nice step" algorithm doesn't use our 1/2/5 rule, so a domain
+// its own. Its internal "nice step" algorithm doesn't use our 1/2/5 rule, so a domain
 // boundary we've already rounded (say, top = 500) can end up out of step with where its
-// own tick generator wants to land (stepping by 150: 0, 150, 300, 450, 600) — 600 gets
+// own tick generator wants to land (stepping by 150: 0, 150, 300, 450, 600). 600 gets
 // clipped for exceeding our domain, and the survivor closest to the boundary (450) then
 // gets dropped too for sitting too close to the 500 label, leaving uneven gaps. Deriving
 // the step and the domain together means there's nothing left for the two to disagree on.
@@ -112,19 +112,19 @@ const zoomedDomain = (data, keys, minSpan) => {
     return [ticks[0], ticks[ticks.length - 1]]
 }
 
-// Caption shown once, centered under the whole chart (fixed axis + scroll area) —
-// stays put regardless of horizontal scroll position, unlike an axis label baked
+// Caption shown once, centered under the whole chart (fixed axis + scroll area).
+// Stays put regardless of horizontal scroll position, unlike an axis label baked
 // into the scrollable SVG would.
 const IntervalCaption = () => (
     <p className="text-center text-[11px] text-gray-300 mt-1">Interval</p>
 )
 
 // One pixel width per interval tick, so with interval=0 (every label forced on)
-// there's always enough room for every "#N" label — the chart scrolls
+// there's always enough room for every "#N" label. The chart scrolls
 // horizontally instead of crowding or dropping labels on long sessions.
 const PX_PER_TICK = 40
 
-// Native scrollbars are unreliable here — macOS/Chrome overlay scrollbars stay
+// Native scrollbars are unreliable here. macOS/Chrome overlay scrollbars stay
 // invisible regardless of CSS. Draw our own track + thumb from actual scroll
 // state instead, so the affordance renders identically on every browser/OS.
 const ChartScroll = ({ tickCount, children }) => {
@@ -284,7 +284,7 @@ const WinnerBadge = ({ winner }) => {
 }
 
 const DeltaBadge = ({ delta, lowerIsBetter }) => {
-    if (delta === 0) return <span className="text-xs text-gray-400">—</span>
+    if (delta === 0) return <span className="text-xs text-gray-400">N/A</span>
     const better = lowerIsBetter ? delta < 0 : delta > 0
     const sign = delta > 0 ? '+' : ''
     return (

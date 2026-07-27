@@ -56,7 +56,7 @@ const Navbar = () => {
                     </span>
                 </button>
 
-                {/* Center anchor links — landing page only */}
+                {/* Center anchor links, landing page only */}
                 {!onDashboard && (
                     <div className="hidden sm:flex items-center gap-1">
                         <a
@@ -74,7 +74,7 @@ const Navbar = () => {
                     </div>
                 )}
 
-                {/* Dashboard tabs — logged in on dashboard */}
+                {/* Dashboard tabs, logged in on dashboard */}
                 {user && onDashboard && (
                     <div className="flex items-center h-full gap-1">
                         {[

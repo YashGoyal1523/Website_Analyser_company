@@ -4,8 +4,8 @@ import { AppContext } from '../context/AppContext'
 
 const stats = [
     { value: '6', label: 'Core Web Vitals measured' },
-    { value: '6', label: 'Runtime metrics tracked' },
-    { value: '∞', label: 'Configurable intervals' },
+    { value: '7', label: 'Runtime metrics tracked' },
+    { value: '2', label: 'Analysis modes' },
 ]
 
 const features = [
@@ -25,7 +25,17 @@ const features = [
             </svg>
         ),
         title: 'Runtime Monitoring',
-        desc: 'JS heap, DOM nodes, event listeners and CPU timings captured at every Analyse block in your sequence.',
+        desc: 'JS heap, DOM nodes, event listeners, process memory and CPU timings captured at every Analyse block in your sequence.',
+    },
+    {
+        icon: (
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M12 3v12m0 0 4-4m-4 4-4-4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+        ),
+        title: 'History & Export',
+        desc: 'Every scan is saved automatically. Search past runs by URL, re-run any of them in one click, and download a full PDF report of your results or comparisons.',
     },
     {
         icon: (
@@ -47,8 +57,8 @@ const steps = [
     },
     {
         n: '02',
-        title: 'Build your sequence',
-        desc: 'Chain interaction steps (click, scroll, search, login) and drop in Analyse blocks wherever you want metrics captured.',
+        title: 'Script it, or drive it live',
+        desc: 'Automated Sequence: chain interaction steps (click, hover, search, login, scroll, go back, switch tab) with Analyse blocks dropped wherever you want metrics captured. Or skip scripting entirely with a Live Session: interact with the site yourself in a real browser window while metrics are captured automatically in the background. Both follow tabs the site opens on its own.',
     },
     {
         n: '03',
@@ -201,7 +211,7 @@ const Landing = () => {
                     <h2 className="text-3xl font-bold text-gray-900 tracking-tight text-center mb-14">
                         Everything you need to analyse performance
                     </h2>
-                    <div className="grid grid-cols-3 gap-6">
+                    <div className="grid grid-cols-2 gap-6">
                         {features.map(({ icon, title, desc }) => (
                             <div key={title} className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-gray-300 transition-all">
                                 <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center mb-4">

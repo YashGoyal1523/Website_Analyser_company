@@ -7,7 +7,7 @@ import { formatElapsed as formatDuration } from '../utils/blocks'
 import StepTypeSelect from '../components/StepTypeSelect'
 
 const STEP_TIME = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3, switchTab: 0.5 }
-// A search step's flat estimate above assumes no submit — a submit button or Enter
+// A search step's flat estimate above assumes no submit. A submit button or Enter
 // checkbox adds a navigation wait, same ballpark as login's, so budget it like login
 // instead of undercounting it as a plain 2s type-and-click.
 const stepTimeSeconds = (item) =>
@@ -60,6 +60,7 @@ const RUNTIME_METRICS = [
     { label: 'Script Duration',    desc: 'Time spent executing scripts' },
     { label: 'Task Duration',      desc: 'Total main-thread task time' },
     { label: 'Layout Duration',    desc: 'Time spent on layout & paint' },
+    { label: 'Process Memory',     desc: 'OS-level renderer memory (RSS)' },
 ]
 
 const LIGHTHOUSE_DISPLAY = [
@@ -86,7 +87,7 @@ const Home = () => {
     const [durationSec, setDurationSec] = useState('')
     const [showSelectorHelp, setShowSelectorHelp] = useState(false)
 
-    // Total Duration's floor is just "long enough for a Lighthouse audit" — page
+    // Total Duration's floor is just "long enough for a Lighthouse audit". Page
     // load isn't part of what Total Duration itself needs to cover (the server's
     // clock starts after the page loads), so it's shown separately below.
     const minDurationSeconds = LIGHTHOUSE_AUDIT_SECONDS
@@ -253,7 +254,7 @@ const Home = () => {
     const analyseBlockCount = sequence.filter(i => i.type === 'analyse').length
     const intervalTime = Number(intervalTimeMin || 0) * 60 + Number(intervalTimeSec || 0)
 
-    // Purely the sequence's own action+capture time — page load isn't part of this,
+    // Purely the sequence's own action+capture time. Page load isn't part of this,
     // since Total Duration's clock only starts once the page has loaded. This is
     // what the "Sequence" badge shows, so it reflects just the steps you built.
     const sequenceTimeSeconds = (() => {
@@ -261,16 +262,16 @@ const Home = () => {
         const captureTime = sequence.filter(i => i.type === 'analyse').reduce((s, i) => s + (Number(i.intervals) || 0) * (Number(intervalTime) || 0), 0)
         return actionTime + captureTime
     })()
-    // What Total Duration actually needs to be at least — the sequence's own time,
+    // What Total Duration actually needs to be at least: the sequence's own time,
     // or the Lighthouse-audit floor, whichever is bigger. Used for the "is this
-    // over budget" check below, not for display — the badge shows sequenceTimeSeconds
+    // over budget" check below, not for display. The badge shows sequenceTimeSeconds
     // instead, since padding it up to the Lighthouse floor would misrepresent how
     // long the sequence itself takes.
     const rawEstimatedSeconds = Math.max(minDurationSeconds, sequenceTimeSeconds)
 
     const totalDurationSeconds = Number(durationMin || 0) * 60 + Number(durationSec || 0)
     const overBudget = totalDurationSeconds > 0 && rawEstimatedSeconds > totalDurationSeconds
-    // Two distinct reasons Total Duration can be too short — kept separate so the
+    // Two distinct reasons Total Duration can be too short, kept separate so the
     // message actually matches the problem, instead of always blaming the sequence.
     const belowMinDuration = totalDurationSeconds > 0 && totalDurationSeconds < minDurationSeconds
     const sequenceOverBudget = totalDurationSeconds >= minDurationSeconds && sequenceTimeSeconds > totalDurationSeconds
@@ -458,18 +459,18 @@ const Home = () => {
                                     <div className="mb-4 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-900 leading-relaxed">
                                         <p className="font-semibold mb-1">What each step does</p>
                                         <ul className="list-disc list-inside space-y-0.5">
-                                            <li><strong>Hover</strong> — hovers the mouse over an element (e.g. to reveal a dropdown menu)</li>
-                                            <li><strong>Click</strong> — clicks an element (e.g. a button or link)</li>
-                                            <li><strong>Search</strong> — types a query into a search box, optionally submitting it via a button or Enter</li>
-                                            <li><strong>Login</strong> — fills in email and password fields and submits the login form</li>
-                                            <li><strong>Scroll</strong> — scrolls to the bottom of the page, then back to the top</li>
-                                            <li><strong>Go Back</strong> — navigates to the previous page, like the browser's back button</li>
-                                            <li><strong>Switch Tab</strong> — changes which tab subsequent steps and analysis run on. Index 0 is the original tab, 1 is the next tab that opened, 2 is the one after that, and so on</li>
+                                            <li><strong>Hover</strong>: hovers the mouse over an element (e.g. to reveal a dropdown menu)</li>
+                                            <li><strong>Click</strong>: clicks an element (e.g. a button or link)</li>
+                                            <li><strong>Search</strong>: types a query into a search box, optionally submitting it via a button or Enter</li>
+                                            <li><strong>Login</strong>: fills in email and password fields and submits the login form</li>
+                                            <li><strong>Scroll</strong>: scrolls to the bottom of the page, then back to the top</li>
+                                            <li><strong>Go Back</strong>: navigates to the previous page, like the browser's back button</li>
+                                            <li><strong>Switch Tab</strong>: changes which tab subsequent steps and analysis run on. Index 0 is the original tab, 1 is the next tab that opened, 2 is the one after that, and so on</li>
                                         </ul>
 
                                         <p className="font-semibold mt-3 mb-1">How to find a CSS selector</p>
                                         <p>
-                                            This applies to every selector field below (Hover, Click, Search, and the Login fields) — the method is the same regardless of which element you need:
+                                            This applies to every selector field below (Hover, Click, Search, and the Login fields). The method is the same regardless of which element you need:
                                         </p>
                                         <ol className="list-decimal list-inside mt-1.5 space-y-0.5">
                                             <li>Right-click the element on the actual page (the button, input, link, etc.) → <strong>Inspect</strong></li>
@@ -530,7 +531,7 @@ const Home = () => {
                                                     <div className="flex items-center gap-2 flex-1 flex-wrap">
                                                         <span className="text-xs text-gray-500">Intervals</span>
                                                         <input
-                                                            type="number" min="1" max="50"
+                                                            type="number" min="1"
                                                             value={item.intervals}
                                                             onChange={e => updateItem(i, 'intervals', e.target.value)}
                                                             disabled={loading}
@@ -729,7 +730,7 @@ const Home = () => {
                                                         <div key={key}>
                                                             <p className="text-[10px] text-gray-400">{label}</p>
                                                             <p className={`text-xs font-semibold ${metricColor(key, val)}`}>
-                                                                {val != null ? fmt(val) : '—'}
+                                                                {val != null ? fmt(val) : 'N/A'}
                                                             </p>
                                                         </div>
                                                     ))}
