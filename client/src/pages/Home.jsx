@@ -6,7 +6,7 @@ import { lighthouseMetrics } from '../assets/assets'
 import { formatElapsed as formatDuration } from '../utils/blocks'
 import StepTypeSelect from '../components/StepTypeSelect'
 
-const STEP_TIME = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3 }
+const STEP_TIME = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3, switchTab: 0.5 }
 // A search step's flat estimate above assumes no submit — a submit button or Enter
 // checkbox adds a navigation wait, same ballpark as login's, so budget it like login
 // instead of undercounting it as a plain 2s type-and-click.
@@ -22,23 +22,24 @@ const DEFAULT_STEP = {
     search:  { type: 'search', selector: '', query: '', submitSelector: '', pressEnter: false },
     goBack:  { type: 'goBack' },
     login:   { type: 'login',  emailSelector: '', passwordSelector: '', submitSelector: '', email: '', password: '' },
+    switchTab: { type: 'switchTab', tabIndex: 0 },
 }
 
 const STEP_LABELS = {
     scroll: 'Scroll', hover: 'Hover', click: 'Click',
-    search: 'Search', goBack: 'Go Back', login: 'Login',
+    search: 'Search', goBack: 'Go Back', login: 'Login', switchTab: 'Switch Tab',
 }
 
 const STEP_BORDER = {
     login: 'border-l-blue-400', scroll: 'border-l-violet-400',
     hover: 'border-l-amber-400', click: 'border-l-emerald-400',
-    search: 'border-l-cyan-400', goBack: 'border-l-gray-300',
+    search: 'border-l-cyan-400', goBack: 'border-l-gray-300', switchTab: 'border-l-pink-400',
 }
 
 const STEP_DOT = {
     login: 'bg-blue-500', scroll: 'bg-violet-500',
     hover: 'bg-amber-500', click: 'bg-emerald-500',
-    search: 'bg-cyan-500', goBack: 'bg-gray-400',
+    search: 'bg-cyan-500', goBack: 'bg-gray-400', switchTab: 'bg-pink-500',
 }
 
 const smInput = 'w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-50'
@@ -85,7 +86,10 @@ const Home = () => {
     const [durationSec, setDurationSec] = useState('')
     const [showSelectorHelp, setShowSelectorHelp] = useState(false)
 
-    const minDurationSeconds = PAGE_LOAD_ESTIMATE_SECONDS + LIGHTHOUSE_AUDIT_SECONDS
+    // Total Duration's floor is just "long enough for a Lighthouse audit" — page
+    // load isn't part of what Total Duration itself needs to cover (the server's
+    // clock starts after the page loads), so it's shown separately below.
+    const minDurationSeconds = LIGHTHOUSE_AUDIT_SECONDS
 
     const setIntervalTimeFromSeconds = (totalSeconds) => {
         const s = Number(totalSeconds) || 0
@@ -161,7 +165,7 @@ const Home = () => {
             if (!analysis.totalDuration) {
                 const actionTime  = seq.filter(i => i.type !== 'analyse').reduce((s, i) => s + stepTimeSeconds(i), 0)
                 const captureTime = seq.filter(i => i.type === 'analyse').reduce((s, i) => s + (Number(i.intervals) || 0) * (Number(i.intervalTime) || 0), 0)
-                setDurationFromSeconds(PAGE_LOAD_ESTIMATE_SECONDS + actionTime + captureTime)
+                setDurationFromSeconds(actionTime + captureTime)
             }
         }
         window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -214,10 +218,20 @@ const Home = () => {
                 if (!item.email.trim())            { toast.error(`Item ${num} (login): email is required.`); return }
                 if (!item.password.trim())         { toast.error(`Item ${num} (login): password is required.`); return }
             }
+            if (item.type === 'switchTab') {
+                if (item.tabIndex === '' || Number(item.tabIndex) < 0 || !Number.isInteger(Number(item.tabIndex))) {
+                    toast.error(`Item ${num} (switch tab): tab index must be a whole number, 0 or greater.`); return
+                }
+            }
         }
 
-        if (rawEstimatedSeconds > totalDurationSeconds) {
-            toast.error(`This sequence needs about ${formatDuration(rawEstimatedSeconds)} to run, but Total Duration is only ${formatDuration(totalDurationSeconds)}. Increase the duration, or trim your steps to fit.`)
+        if (belowMinDuration) {
+            toast.error(`Total Duration must be at least ${minDurationSeconds}s (Lighthouse audit). Increase the duration.`)
+            return
+        }
+
+        if (sequenceOverBudget) {
+            toast.error(`This sequence needs about ${formatDuration(sequenceTimeSeconds)} to run, but Total Duration is only ${formatDuration(totalDurationSeconds)}. Increase the duration, or trim your steps to fit.`)
             return
         }
 
@@ -236,17 +250,33 @@ const Home = () => {
     const analyseBlockCount = sequence.filter(i => i.type === 'analyse').length
     const intervalTime = Number(intervalTimeMin || 0) * 60 + Number(intervalTimeSec || 0)
 
-    const rawEstimatedSeconds = (() => {
+    // Purely the sequence's own action+capture time — page load isn't part of this,
+    // since Total Duration's clock only starts once the page has loaded. This is
+    // what the "Sequence" badge shows, so it reflects just the steps you built.
+    const sequenceTimeSeconds = (() => {
         const actionTime  = sequence.filter(i => i.type !== 'analyse').reduce((s, i) => s + stepTimeSeconds(i), 0)
         const captureTime = sequence.filter(i => i.type === 'analyse').reduce((s, i) => s + (Number(i.intervals) || 0) * (Number(intervalTime) || 0), 0)
-        const minSeconds = PAGE_LOAD_ESTIMATE_SECONDS + LIGHTHOUSE_AUDIT_SECONDS
-        return Math.max(minSeconds, PAGE_LOAD_ESTIMATE_SECONDS + actionTime + captureTime)
+        return actionTime + captureTime
     })()
+    // What Total Duration actually needs to be at least — the sequence's own time,
+    // or the Lighthouse-audit floor, whichever is bigger. Used for the "is this
+    // over budget" check below, not for display — the badge shows sequenceTimeSeconds
+    // instead, since padding it up to the Lighthouse floor would misrepresent how
+    // long the sequence itself takes.
+    const rawEstimatedSeconds = Math.max(minDurationSeconds, sequenceTimeSeconds)
 
     const totalDurationSeconds = Number(durationMin || 0) * 60 + Number(durationSec || 0)
     const overBudget = totalDurationSeconds > 0 && rawEstimatedSeconds > totalDurationSeconds
+    // Two distinct reasons Total Duration can be too short — kept separate so the
+    // message actually matches the problem, instead of always blaming the sequence.
+    const belowMinDuration = totalDurationSeconds > 0 && totalDurationSeconds < minDurationSeconds
+    const sequenceOverBudget = totalDurationSeconds >= minDurationSeconds && sequenceTimeSeconds > totalDurationSeconds
 
-    const estimatedSeconds = `~${formatDuration(rawEstimatedSeconds)}`
+    const estimatedSeconds = `~${formatDuration(sequenceTimeSeconds)}`
+    // What the whole request will actually take wall-clock: an estimated page load,
+    // plus the full Total Duration you configured (which only starts counting once
+    // the page is ready).
+    const estimatedTotalWithLoad = PAGE_LOAD_ESTIMATE_SECONDS + totalDurationSeconds
 
     const recent = userAnalyses.slice(0, 3)
     const canSubmit = mode === 'manual'
@@ -332,16 +362,26 @@ const Home = () => {
                                     <span className="text-xs text-gray-400">sec</span>
                                 </div>
                                 <p className="text-xs text-gray-400 mt-1.5">
-                                    Minimum {minDurationSeconds}s (page load + Lighthouse audit)
+                                    Minimum {minDurationSeconds}s (Lighthouse audit)
                                 </p>
-                                {mode === 'auto' && overBudget && (
-                                    <p className="text-xs text-red-500 font-medium mt-2">
-                                        This sequence needs about {formatDuration(rawEstimatedSeconds)} to run, but Total Duration is only {formatDuration(totalDurationSeconds)}. Increase the duration, or trim your steps to fit.
+                                {totalDurationSeconds > 0 && (
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        ~{formatDuration(estimatedTotalWithLoad)} total (~{formatDuration(PAGE_LOAD_ESTIMATE_SECONDS)} estimated page load + {formatDuration(totalDurationSeconds)} analysis)
                                     </p>
                                 )}
-                                {mode === 'manual' && totalDurationSeconds > 0 && totalDurationSeconds < minDurationSeconds && (
+                                {mode === 'auto' && belowMinDuration && (
                                     <p className="text-xs text-red-500 font-medium mt-2">
-                                        Total Duration must be at least {minDurationSeconds}s (page load + Lighthouse audit).
+                                        Total Duration must be at least {minDurationSeconds}s (Lighthouse audit). Increase the duration.
+                                    </p>
+                                )}
+                                {mode === 'auto' && sequenceOverBudget && (
+                                    <p className="text-xs text-red-500 font-medium mt-2">
+                                        This sequence needs about {formatDuration(sequenceTimeSeconds)} to run, but Total Duration is only {formatDuration(totalDurationSeconds)}. Increase the duration, or trim your steps to fit.
+                                    </p>
+                                )}
+                                {mode === 'manual' && belowMinDuration && (
+                                    <p className="text-xs text-red-500 font-medium mt-2">
+                                        Total Duration must be at least {minDurationSeconds}s (Lighthouse audit).
                                     </p>
                                 )}
                             </div>
@@ -396,14 +436,12 @@ const Home = () => {
                                         </div>
                                         <p className="text-xs text-gray-400 mt-0.5">Mix actions and analysis captures: executed in order</p>
                                     </div>
-                                    {url && (durationMin !== '' || durationSec !== '') && (
-                                        <span className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${overBudget ? 'text-red-600 bg-red-50 border border-red-100' : 'text-blue-600 bg-blue-50 border border-blue-100'}`}>
-                                            <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                                                <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" strokeLinecap="round" />
-                                            </svg>
-                                            {estimatedSeconds}
-                                        </span>
-                                    )}
+                                    <span className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${sequenceOverBudget ? 'text-red-600 bg-red-50 border border-red-100' : 'text-blue-600 bg-blue-50 border border-blue-100'}`}>
+                                        <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                            <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" strokeLinecap="round" />
+                                        </svg>
+                                        {estimatedSeconds}
+                                    </span>
                                 </div>
 
                                 {showSelectorHelp && (
@@ -416,6 +454,7 @@ const Home = () => {
                                             <li><strong>Login</strong> — fills in email and password fields and submits the login form</li>
                                             <li><strong>Scroll</strong> — scrolls to the bottom of the page, then back to the top</li>
                                             <li><strong>Go Back</strong> — navigates to the previous page, like the browser's back button</li>
+                                            <li><strong>Switch Tab</strong> — changes which tab subsequent steps and analysis run on. Index 0 is the original tab, 1 is the next tab that opened, 2 is the one after that, and so on</li>
                                         </ul>
 
                                         <p className="font-semibold mt-3 mb-1">How to find a CSS selector</p>
@@ -511,6 +550,14 @@ const Home = () => {
                                                 {(item.type === 'hover' || item.type === 'click') && (
                                                     <div className="mt-2.5 ml-6">
                                                         <input disabled={loading} className={smInput} placeholder="CSS selector" value={item.selector} onChange={e => updateItem(i, 'selector', e.target.value)} />
+                                                    </div>
+                                                )}
+                                                {item.type === 'switchTab' && (
+                                                    <div className="mt-2.5 ml-6 flex items-center gap-2">
+                                                        <input disabled={loading} type="number" min="0" step="1"
+                                                            className="w-16 bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center text-gray-900 focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
+                                                            value={item.tabIndex} onChange={e => updateItem(i, 'tabIndex', e.target.value)} />
+                                                        <span className="text-xs text-gray-400">Tab index (0 = original tab, 1 = first new tab, …)</span>
                                                     </div>
                                                 )}
                                                 {item.type === 'search' && (

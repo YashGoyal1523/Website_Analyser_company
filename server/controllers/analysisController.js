@@ -5,8 +5,8 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import analysisModel from '../models/analysisModel.js';
 
-// Keep in sync with STEP_TIME / PAGE_LOAD_ESTIMATE_SECONDS / LIGHTHOUSE_AUDIT_SECONDS on the client (Home.jsx / AppContext.jsx)
-const STEP_TIME_SECONDS = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3 };
+// Keep in sync with STEP_TIME / LIGHTHOUSE_AUDIT_SECONDS on the client (Home.jsx / AppContext.jsx)
+const STEP_TIME_SECONDS = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3, switchTab: 0.5 };
 // A search step's flat estimate above assumes no submit — a submit button or Enter
 // checkbox adds a navigation wait, same ballpark as login's, so budget it like login
 // instead of undercounting it as a plain 2s type-and-click.
@@ -14,8 +14,12 @@ const stepTimeSeconds = (item) =>
     item.type === 'search' && (item.submitSelector || item.pressEnter)
         ? STEP_TIME_SECONDS.login
         : (STEP_TIME_SECONDS[item.type] || 1);
-const PAGE_LOAD_ESTIMATE_SECONDS = 8;
-const LIGHTHOUSE_AUDIT_SECONDS = 7;
+// Measured directly against real sites (browser launch + a 3-category audit:
+// performance/accessibility/seo) — ranged ~9-18.5s; 12 is a middle-ground estimate,
+// not a tight bound. Lighthouse timing is inherently variable per-site, so this is
+// informational (shown to the user, used as Total Duration's floor) rather than
+// something the request is ever strictly bounded by.
+const LIGHTHOUSE_AUDIT_SECONDS = 12;
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -65,7 +69,9 @@ async function assertPublicUrl(rawUrl) {
     }
 }
 
-async function runStep(page, step) {
+async function runStep(tabState, step) {
+    const page = tabState.active;
+    const pagesBefore = tabState.pages.length;
     switch (step.type) {
 
         case 'login': {
@@ -135,6 +141,39 @@ async function runStep(page, step) {
         case 'goBack':
             await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 });
             break;
+
+        case 'switchTab': {
+            const idx = Number(step.tabIndex);
+            // A tab opened by the step right before this one may not be registered
+            // yet — targetcreated is an async browser event that can land a beat
+            // after the step that triggered it already resolved — so give it a
+            // short window rather than failing immediately.
+            const deadline = Date.now() + 5000;
+            let target = tabState.pages[idx];
+            while (!target && Date.now() < deadline) {
+                await sleep(100);
+                target = tabState.pages[idx];
+            }
+            if (!target || target.isClosed()) {
+                return `Switch Tab: tab ${step.tabIndex} is not open`;
+            }
+            await target.bringToFront();
+            tabState.active = target;
+            break;
+        }
+    }
+    // click/search/login are the step types that involve a real user-gesture-style
+    // interaction, so they're the ones that can trigger a new tab opening — give the
+    // browser's async targetcreated event a short, bounded window (typically landing
+    // within tens of milliseconds) to arrive before moving on, so the *next* step or
+    // analyse sample reliably reflects a tab that just opened, without needing an
+    // explicit 'switchTab' step for the common case. A no-op almost instantly if
+    // nothing new opened, since it only waits while the tab count hasn't changed yet.
+    if (['click', 'search', 'login'].includes(step.type)) {
+        const deadline = Date.now() + 300;
+        while (tabState.pages.length === pagesBefore && Date.now() < deadline) {
+            await sleep(25);
+        }
     }
     return null;
 }
@@ -251,37 +290,126 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
         return { results, warnings };
     }
     try {
-        // Reuse Chromium's own default tab instead of opening a second one via
-        // newPage() — with two tabs open, SystemInfo.getProcessInfo can't tell which
-        // renderer is "ours", so we'd be summing in an idle blank tab's memory too.
+        // Start from Chromium's own default tab; more may join below if the site
+        // itself opens new ones (target="_blank", window.open, a form target).
         const page = (await browser.pages())[0];
         // SystemInfo.getProcessInfo is a browser-level CDP method — a page-level
         // session (page.target().createCDPSession()) rejects it with "only supported
-        // on the browser target".
+        // on the browser target". It also reports every renderer process in the
+        // browser, not just one tab's — since every tab tracked in tabState (below)
+        // is meant to be part of this analysis, that's the desired total, though it
+        // means processMemoryMB is a whole-browser figure, not a per-tab one; Chrome
+        // doesn't expose a reliable tab→renderer-PID mapping to attribute it more
+        // precisely than that.
         const client = await browser.target().createCDPSession();
-        const sessionStart = Date.now();
 
         // A URL can pass the upfront assertPublicUrl check in analyzeWebsite and still
         // redirect to an internal address once Chrome actually navigates — re-validate
         // every main-frame navigation (including each redirect hop) here, not just the
-        // original request.
-        await page.setRequestInterception(true);
-        page.on('request', (request) => {
-            if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-                assertPublicUrl(request.url()).then(() => request.continue(), () => request.abort('blockedbyclient'));
-            } else {
-                request.continue();
+        // original request. Applied to every tracked tab via attachTab below, not just
+        // this one, since a popup can navigate anywhere too.
+        const guardNavigation = async (p) => {
+            await p.setRequestInterception(true);
+            p.on('request', (request) => {
+                if (request.isNavigationRequest() && request.frame() === p.mainFrame()) {
+                    assertPublicUrl(request.url()).then(() => request.continue(), () => request.abort('blockedbyclient'));
+                } else {
+                    request.continue();
+                }
+            });
+        };
+
+        // Tracks every tab seen so far (by the order it was opened, so a 'switchTab'
+        // step can address one by index) and which one is currently "active" — the
+        // one runStep acts on and the analyse loop below samples. A tab reports
+        // itself active via its own Visibility API: that fires both when a human
+        // switches tabs directly in a live/manual session's visible Chrome window
+        // and when page.bringToFront() runs (used by the 'switchTab' step), so
+        // scripted and human-driven switching both flow through this one mechanism.
+        //
+        // A brand-new tab is handled separately (see targetcreated below) rather
+        // than relying on that same visibility script: evaluateOnNewDocument only
+        // affects *future* navigations, and a popup's target is typically already
+        // mid-navigation (or done) by the time our targetcreated handler gets a
+        // Page object for it, so the injected listener never fires on that tab's
+        // first document at all. New tabs are focused by default when opened via
+        // target="_blank"/window.open — the previously-active tab reliably reports
+        // itself hidden the instant the new one is created — so it's set active
+        // immediately instead.
+        // Remembers each tab's opener (the tab it was opened from, one level only —
+        // not the full chain) so a closed tab can fall back to the specific tab that
+        // spawned it, rather than always jumping straight to the original tab.
+        const tabState = { pages: [page], active: page, openerOf: new Map() };
+
+        // If the currently-active tab closes (site-closed, user-closed, or a popup
+        // that closes itself — Puppeteer/CDP doesn't distinguish why), picks
+        // somewhere sensible to fall back to: the tab that opened it, if that's
+        // still around, else the original tab, else whatever else is still open.
+        // Used both reactively (the 'close' listener below, for the common case)
+        // and as a backstop (the analyse loop's catch block, for a tab that closes
+        // too fast for its own 'close' listener to even get attached).
+        const pickFallbackTab = (closedPage) => {
+            const opener = tabState.openerOf.get(closedPage);
+            if (opener && !opener.isClosed()) return opener;
+            if (!tabState.pages[0].isClosed()) return tabState.pages[0];
+            return tabState.pages.find(p => !p.isClosed()) ?? null;
+        };
+
+        const attachTab = async (p) => {
+            await guardNavigation(p);
+            await p.exposeFunction('__reportTabVisibility', (state) => {
+                if (state === 'visible') tabState.active = p;
+            });
+            const trackVisibility = () => {
+                document.addEventListener('visibilitychange', () => window.__reportTabVisibility(document.visibilityState));
+                window.__reportTabVisibility(document.visibilityState);
+            };
+            await p.evaluateOnNewDocument(trackVisibility);
+            // Also attach directly to whatever's already loaded right now — covers
+            // both the original tab (already loaded before this runs) and a new
+            // tab whose first navigation evaluateOnNewDocument above missed.
+            await p.evaluate(trackVisibility).catch(() => {});
+            p.on('close', () => {
+                if (tabState.active !== p) return;
+                const fallback = pickFallbackTab(p);
+                if (fallback) tabState.active = fallback;
+            });
+        };
+        await attachTab(page);
+        browser.on('targetcreated', async (target) => {
+            if (target.type() !== 'page') return;
+            const newPage = await target.page();
+            if (!newPage) return;
+            tabState.pages.push(newPage);
+            const openerTarget = target.opener();
+            if (openerTarget) {
+                const openerPage = await openerTarget.page().catch(() => null);
+                if (openerPage) tabState.openerOf.set(newPage, openerPage);
             }
+            // Set active immediately (see comment above) rather than waiting on
+            // attachTab's several CDP round-trips to finish.
+            tabState.active = newPage;
+            await attachTab(newPage).catch(() => {});
         });
 
         try {
-            await page.goto(url, { waitUntil: 'networkidle2' });
+            // Total Duration doesn't bound page load (its clock starts once loading
+            // finishes — see sessionStart below), so navigation needs its own explicit
+            // ceiling here — otherwise a page that never quite goes network-idle
+            // (persistent polling, websockets, etc.) could hang the request indefinitely.
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
         } catch (e) {
             // A disconnect mid-load closes the browser above, which makes this reject —
             // that's expected and not a real failure, so don't let it escape as one.
             if (clientDisconnected) return { results, warnings };
             throw e;
         }
+
+        // Total Duration's clock starts here, once the page has actually finished
+        // loading — not at browser launch or navigation start — so the sequence and
+        // analyse block below get the *full* configured duration for themselves,
+        // regardless of how long this particular site took to load.
+        const sessionStart = Date.now();
 
         const runAllItems = async () => {
             for (const item of sequence) {
@@ -301,11 +429,28 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
                         // own browser.close() and misreport a real disconnect.
                         if (timedOut || clientDisconnected) return;
                         const slotStart = Date.now();
+                        // Snapshot which tab is active for this whole tick, so a switch that
+                        // lands mid-capture can't mix metrics from one tab with the URL of
+                        // another.
+                        const activePage = tabState.active;
                         let metrics;
                         try {
-                            metrics = await page.metrics();
+                            metrics = await activePage.metrics();
                         } catch (e) {
                             if (timedOut || clientDisconnected) return;
+                            // The active tab may have just closed (site-closed, user-closed,
+                            // or a self-closing popup that beat its own 'close' listener —
+                            // see pickFallbackTab) rather than the whole browser being gone.
+                            // Recover onto another still-open tab if one exists; only treat
+                            // this as a real disconnect once nothing tracked is left open.
+                            const fallback = pickFallbackTab(activePage);
+                            if (fallback) {
+                                tabState.active = fallback;
+                                warnings.push(`A tracked tab closed mid-capture; run ${runCounter + 1} was skipped, continuing on another tab. (${e.message})`);
+                                const remaining = intervalMs - (Date.now() - slotStart);
+                                if (remaining > 0) await sleep(remaining);
+                                continue;
+                            }
                             browserDisconnected = true;
                             warnings.push(mode === 'manual'
                                 ? `Browser window was closed before Total Duration elapsed; results reflect runtime up to that point. (${e.message})`
@@ -323,7 +468,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
                         results.push({
                             run:              runCounter,
                             timestamp:        new Date().toISOString(),
-                            url:              page.url(),
+                            url:              activePage.url(),
                             scriptDuration:   metrics.ScriptDuration,
                             taskDuration:     metrics.TaskDuration,
                             layoutDuration:   metrics.LayoutDuration,
@@ -341,7 +486,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
                     warnings.push(`${item.type} skipped: an earlier login step failed`);
                 } else {
                     try {
-                        const warning = await runStep(page, item);
+                        const warning = await runStep(tabState, item);
                         if (warning) warnings.push(warning);
                     } catch (e) {
                         warnings.push(`${item.type} failed: ${e.message}`);
@@ -429,15 +574,16 @@ const analyzeWebsite = async (req, res) => {
             return res.status(400).json({ success: false, message: 'totalDuration (seconds) is required' });
         }
 
-        // Same floor in both modes: even a trivial request still needs a page load and
-        // a full Lighthouse audit, so nothing gets accepted below that regardless of
-        // how little the rest of the sequence needs.
-        const minDurationSeconds = PAGE_LOAD_ESTIMATE_SECONDS + LIGHTHOUSE_AUDIT_SECONDS;
+        // Total Duration doesn't need to cover page load — the session's clock only
+        // starts once the page has actually finished loading (see sessionStart in
+        // runSequence), so the floor here is just "long enough for a full Lighthouse
+        // audit," which runs independently and in parallel regardless.
+        const minDurationSeconds = LIGHTHOUSE_AUDIT_SECONDS;
 
         if (mode === 'manual') {
             // A live session is an intentionally-unbounded capture block, so the
             // fixed-cost budget check below doesn't apply — just make sure the
-            // duration covers page load + Lighthouse, and there's a usable interval.
+            // duration covers a full Lighthouse audit, and there's a usable interval.
             if (totalDurationSeconds < minDurationSeconds) {
                 return res.status(400).json({ success: false, message: `totalDuration must be at least ${minDurationSeconds}s` });
             }
@@ -457,8 +603,17 @@ const analyzeWebsite = async (req, res) => {
                 .filter(item => item.type === 'analyse')
                 .reduce((sum, item) => sum + Number(item.intervals) * (Number(item.intervalTime) || 1), 0);
 
-            const neededSeconds = Math.max(minDurationSeconds, PAGE_LOAD_ESTIMATE_SECONDS + actionSeconds + captureSeconds);
+            // Two distinct reasons Total Duration can be too short — kept separate so
+            // the error actually matches the problem, instead of always blaming the
+            // sequence for what's really the Lighthouse-audit floor.
+            if (totalDurationSeconds < minDurationSeconds) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Total Duration must be at least ${minDurationSeconds}s (Lighthouse audit). Increase the duration.`,
+                });
+            }
 
+            const neededSeconds = actionSeconds + captureSeconds;
             if (neededSeconds > totalDurationSeconds) {
                 return res.status(400).json({
                     success: false,
@@ -489,7 +644,8 @@ export const getSingleAnalysis = async (req, res) => {
         if (!analysis) return res.status(404).json({ success: false, message: 'Not found' });
         res.json({ success: true, data: analysis });
     } catch (e) {
-        res.status(500).json({ success: false, message: e.message });
+        console.error('Failed to load analysis:', e.message);
+        res.status(500).json({ success: false, message: 'Failed to load analysis' });
     }
 };
 
@@ -501,7 +657,8 @@ export const getUserAnalyses = async (req, res) => {
             .select('url lighthouseData createdAt totalRuns sequence mode totalDuration');
         res.json({ success: true, data: analyses });
     } catch (e) {
-        res.status(500).json({ success: false, message: e.message });
+        console.error('Failed to load analyses:', e.message);
+        res.status(500).json({ success: false, message: 'Failed to load analyses' });
     }
 };
 
@@ -511,7 +668,8 @@ export const deleteAnalysis = async (req, res) => {
         if (!analysis) return res.status(404).json({ success: false, message: 'Not found' });
         res.json({ success: true });
     } catch (e) {
-        res.status(500).json({ success: false, message: e.message });
+        console.error('Failed to delete analysis:', e.message);
+        res.status(500).json({ success: false, message: 'Failed to delete analysis' });
     }
 };
 

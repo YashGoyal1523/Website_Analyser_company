@@ -24,7 +24,10 @@ export const register = async (req, res) => {
       user: { name: user.name, email: user.email },
     })
   } catch (e) {
-    res.status(500).json({ success: false, message: e.message })
+    // The user sees a generic message — the real reason (DB errors, etc.) is only
+    // useful to whoever's debugging the server, so it stays in the server log.
+    console.error('Registration error:', e.message)
+    res.status(500).json({ success: false, message: 'Registration failed' })
   }
 }
 
@@ -44,6 +47,7 @@ export const login = async (req, res) => {
       user: { name: user.name, email: user.email },
     })
   } catch (e) {
-    res.status(500).json({ success: false, message: e.message })
+    console.error('Login error:', e.message)
+    res.status(500).json({ success: false, message: 'Login failed' })
   }
 }

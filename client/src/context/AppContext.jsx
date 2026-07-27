@@ -4,7 +4,10 @@ import { toast } from 'react-toastify'
 
 export const AppContext = createContext()
 
-export const LIGHTHOUSE_AUDIT_SECONDS = 7
+// Measured directly against real sites (browser launch + a 3-category audit:
+// performance/accessibility/seo) — ranged ~9-18.5s; 12 is a middle-ground estimate,
+// not a tight bound. Keep in sync with the server's copy of this constant.
+export const LIGHTHOUSE_AUDIT_SECONDS = 12
 export const PAGE_LOAD_ESTIMATE_SECONDS = 8
 
 const AppContextProvider = ({ children }) => {
@@ -75,6 +78,7 @@ const AppContextProvider = ({ children }) => {
             toast.error(data.message)
             return false
         } catch (e) {
+            console.error('Registration failed:', e)
             toast.error(e.response?.data?.message || 'Registration failed')
             return false
         }
@@ -91,6 +95,7 @@ const AppContextProvider = ({ children }) => {
             toast.error(data.message)
             return false
         } catch (e) {
+            console.error('Login failed:', e)
             toast.error(e.response?.data?.message || 'Login failed')
             return false
         }
@@ -119,6 +124,7 @@ const AppContextProvider = ({ children }) => {
                 toast.error(data.message || 'Failed to delete analysis')
             }
         } catch (e) {
+            console.error('Failed to delete analysis:', e)
             toast.error(e.response?.data?.message || 'Failed to delete analysis')
         }
     }
@@ -129,13 +135,11 @@ const AppContextProvider = ({ children }) => {
     }
 
     const analyzeWebsite = async (url, sequence = [], totalDuration, mode = 'auto') => {
-        // totalDuration already covers page load server-side — runSequence starts its
-        // clock before page.goto() and subtracts however long that takes from the
-        // capture budget, so the sequence phase takes ~totalDuration end to end, not
-        // totalDuration *plus* another page load on top. Adding PAGE_LOAD_ESTIMATE_SECONDS
-        // here would double-count it.
-        const lighthouseEstimate = PAGE_LOAD_ESTIMATE_SECONDS + LIGHTHOUSE_AUDIT_SECONDS
-        const total = Math.max(lighthouseEstimate, Number(totalDuration || 0))
+        // Total Duration's clock only starts once the page has actually finished
+        // loading (runSequence captures sessionStart right after page.goto()
+        // resolves), so the real wall-clock time this request takes is the
+        // page-load estimate plus the full totalDuration.
+        const total = PAGE_LOAD_ESTIMATE_SECONDS + Number(totalDuration || 0)
         setProgress({ elapsed: 0, total })
 
         const startedAt = Date.now()
@@ -176,6 +180,11 @@ const AppContextProvider = ({ children }) => {
             toast.error(data.message)
             return false
         } catch (error) {
+            // The user sees a generic, non-technical message — the real underlying
+            // reason (Chrome failing to launch, a page never loading, etc.) goes to
+            // the console instead, where it's actually useful for debugging without
+            // exposing internals in the UI.
+            if (error.response?.data?.details) console.error('Analysis failed:', error.response.data.details)
             toast.error(error.response?.data?.message || 'Analysis failed. Is the server running?')
             return false
         } finally {

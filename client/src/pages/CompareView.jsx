@@ -24,7 +24,8 @@ const CompareView = () => {
                     const urlB = resB.data.data.url.replace(/^https?:\/\//, '')
                     document.title = `Compare · ${urlA} vs ${urlB}`
                 } else setError(true)
-            } catch {
+            } catch (e) {
+                console.error('Failed to load comparison:', e)
                 setError(true)
             }
         }

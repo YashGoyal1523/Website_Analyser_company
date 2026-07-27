@@ -22,7 +22,8 @@ const AnalysisView = () => {
                     setData(res.data)
                     document.title = `Results · ${res.data.url.replace(/^https?:\/\//, '')}`
                 } else setError(true)
-            } catch {
+            } catch (e) {
+                console.error('Failed to load analysis:', e)
                 setError(true)
             }
         }
