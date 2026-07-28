@@ -72,7 +72,7 @@ const AnalysisCard = ({ analysis, onClick, onView, onRerun, onDelete, compareMod
                 {!compareMode && (
                     <button
                         onClick={(e) => { e.stopPropagation(); onDelete?.() }}
-                        className="text-gray-300 hover:text-red-400 transition-colors shrink-0"
+                        className="text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 -m-1 transition-colors shrink-0"
                         title="Delete"
                     >
                         <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -83,43 +83,45 @@ const AnalysisCard = ({ analysis, onClick, onView, onRerun, onDelete, compareMod
             </div>
 
             {/* Metrics row */}
-            <div className="flex items-center gap-6 mt-4 pt-4 border-t border-gray-50">
+            <div className="flex items-center justify-between gap-2 mt-4 pt-4 border-t border-gray-50">
                 {METRICS.map(({ key, label, fmt }) => {
                     const value  = lighthouseData?.[key]
                     const status = getStatus(key, value)
                     return (
-                        <div key={key} className="flex items-center gap-2">
-                            <span className="text-xs text-gray-400 font-medium w-7">{label}</span>
-                            <span className={`text-sm font-bold ${status ? STATUS_COLOR[status] : 'text-gray-400'}`}>
-                                {value != null ? fmt(value) : 'N/A'}
-                            </span>
-                            {status && (
-                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${STATUS_BADGE[status]}`}>
-                                    {STATUS_LABEL[status]}
+                        <div key={key}>
+                            <p className="text-xs text-gray-400 font-medium">{label}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className={`text-sm font-bold ${status ? STATUS_COLOR[status] : 'text-gray-400'}`}>
+                                    {value != null ? fmt(value) : 'N/A'}
                                 </span>
-                            )}
+                                {status && (
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${STATUS_BADGE[status]}`}>
+                                        {STATUS_LABEL[status]}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     )
                 })}
-
-                {/* Action buttons, pushed to the right */}
-                {!compareMode && (
-                    <div className="ml-auto flex items-center gap-2">
-                        <button
-                            onClick={onView}
-                            className="text-xs font-medium text-gray-600 border border-gray-200 hover:border-gray-300 hover:text-gray-900 px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                            View
-                        </button>
-                        <button
-                            onClick={onRerun}
-                            className="text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                            Re-run
-                        </button>
-                    </div>
-                )}
             </div>
+
+            {/* Action buttons */}
+            {!compareMode && (
+                <div className="flex items-center gap-2 mt-4">
+                    <button
+                        onClick={onView}
+                        className="flex-1 text-xs font-medium text-gray-600 border border-gray-200 hover:border-gray-300 hover:text-gray-900 py-1.5 rounded-lg transition-colors text-center"
+                    >
+                        View
+                    </button>
+                    <button
+                        onClick={onRerun}
+                        className="flex-1 text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 py-1.5 rounded-lg transition-colors text-center"
+                    >
+                        Re-run
+                    </button>
+                </div>
+            )}
         </div>
     )
 }

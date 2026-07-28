@@ -6,7 +6,7 @@ import AnalysisCard from '../components/AnalysisCard'
 const History = () => {
     const { userAnalyses, fetchUserAnalyses, deleteAnalysis } = useContext(AppContext)
     const navigate = useNavigate()
-    const [fetching, setFetching]   = useState(false)
+    const [fetching, setFetching]   = useState(true)
     const [search, setSearch]       = useState('')
     const [compareMode, setCompareMode] = useState(false)
     const [selectedIds, setSelectedIds] = useState([])
@@ -17,7 +17,7 @@ const History = () => {
         setFetching(false)
     }
 
-    useEffect(() => { load() }, [])
+    useEffect(() => { fetchUserAnalyses().finally(() => setFetching(false)) }, [])
 
     const toggleCompareMode = () => {
         setCompareMode(p => !p)
@@ -88,8 +88,8 @@ const History = () => {
     )
 
     return (
-        <div className="min-h-full px-8 py-10">
-            <div className="max-w-7xl mx-auto">
+        <div className="min-h-full px-8 py-8">
+            <div className="max-w-340 mx-auto">
 
                 {/* ── Header ─────────────────────────────────── */}
                 <div className="flex items-start justify-between mb-8">
@@ -200,7 +200,7 @@ const History = () => {
                 )}
 
                 {/* ── Cards ──────────────────────────────────── */}
-                <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {filtered.length === 0 && !search && null}
                     {filtered.map(analysis => (
                         <AnalysisCard

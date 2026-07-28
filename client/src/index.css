@@ -1,22 +1,56 @@
 @import "tailwindcss";
 
-/* Chart horizontal-scroll containers draw their own track/thumb indicator
-   (driven by JS scroll state) below the chart, so the browser's native
-   scrollbar is hidden here to avoid showing two redundant bars. */
-.no-native-scrollbar {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.no-native-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
 @media print {
   nav, .no-print { display: none !important; }
   body { background: white !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  .max-w-4xl { max-width: 100% !important; }
-  .rounded-2xl, section { break-inside: avoid; page-break-inside: avoid; }
+  .max-w-340 { max-width: 100% !important; }
+  /* Individual cards stay atomic (never split mid-card), but a whole <section>
+     is NOT — a section can span several cards' worth of height (header, a big
+     metric table, two score cards), and forcing the entire thing to move to
+     the next page as one block is what was leaving the page before it almost
+     entirely blank. Letting the section itself break, while every card inside
+     it still can't, lets content actually fill each page instead. */
+  .rounded-2xl { break-inside: avoid; page-break-inside: avoid; }
+  /* A section's heading (icon + title) must not become an orphan sitting alone
+     at the bottom of a page with its content pushed to the next one. */
+  .section-header { break-after: avoid-page; }
+  /* The SEO/Accessibility score cards are two separate small cards, so without
+     this they could split apart — one landing at the bottom of a page, the
+     other stranded alone at the top of an otherwise near-empty next page.
+     Grouping them keeps both together as a single pagination unit. */
+  .score-group { break-inside: avoid; page-break-inside: avoid; }
   svg { overflow: visible !important; }
+  /* Safety net for Recharts' ResponsiveContainer: it sizes its <svg> via
+     ResizeObserver, which in real browser print (not just automated testing)
+     can fail to catch up to the narrower print width in time and leave the
+     chart's SVG sized for the screen — overflowing past its card into the
+     page margin. Capping the rendered SVG to its container's width directly
+     in CSS doesn't depend on that JS remeasurement succeeding at all. */
+  .recharts-wrapper, .recharts-surface { max-width: 100% !important; }
   @page { margin: 1.5cm; }
+
+  /* Printing evaluates min-width media queries against the print page size,
+     not the screen viewport, so Tailwind's lg: breakpoint (>=1024px) doesn't
+     reliably apply and these multi-column layouts would otherwise collapse
+     back to a single narrow column in the PDF. Force explicit layouts here
+     instead of depending on lg: — but the print page itself is much
+     narrower than the on-screen wide container (~700-800px usable after
+     margins, not ~1360px), so these use column counts sized for THAT
+     width, not simply copied from the desktop breakpoint (6 columns of
+     metrics or a fixed 420px sidebar both overflowed/clipped at print
+     width — verified against an actual browser print preview).
+  */
+  .lh-metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .lh-compare-grid { grid-template-columns: 1fr !important; }
+
+  /* Runtime charts specifically: Recharts' ResponsiveContainer sizes itself via
+     ResizeObserver, and in real browser print (not just automated testing) the
+     second column of a 2-up chart grid reliably fails to pick up the narrower
+     print width in time — its SVG stays sized for the screen and overflows
+     past its card into the page margin. Forcing every chart to its own full
+     width row sidesteps that: there's no second-column race left to lose. */
+  .chart-grid { grid-template-columns: 1fr !important; }
+  .chart-span-2 { grid-column: 1 / -1 !important; }
+  .chart-half { width: 100% !important; }
 }

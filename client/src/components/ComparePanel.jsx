@@ -7,6 +7,32 @@ import {
 import { lighthouseMetrics } from '../assets/assets'
 import { buildBlocks, withTiming, formatElapsed } from '../utils/blocks'
 
+// FixedYAxis (a fixed pixel `width` number) always renders correctly in a
+// printed/PDF export; the main chart right next to it (Recharts'
+// ResponsiveContainer with width="100%" inside a flex child) reliably does
+// not — real exported PDFs confirm every runtime chart's line and x-axis go
+// missing while its own y-axis panel renders fine. Recharts resolving
+// width="100%" via its own ResizeObserver is the common thread between every
+// broken chart. Measuring the container ourselves with a plain ResizeObserver
+// and always handing Recharts a concrete pixel number — for both screen and
+// print, not just conditionally at print time — bypasses that resolution path
+// entirely instead of trying to catch it after the fact.
+const useContainerWidth = () => {
+    const ref = useRef(null)
+    const [width, setWidth] = useState(null)
+    useEffect(() => {
+        const el = ref.current
+        if (!el) return
+        const observer = new ResizeObserver(([entry]) => {
+            const w = entry.contentRect.width
+            if (w > 0) setWidth(w)
+        })
+        observer.observe(el)
+        return () => observer.disconnect()
+    }, [])
+    return [ref, width]
+}
+
 const COLOR_A = '#6366f1'
 const COLOR_B = '#f59e0b'
 
@@ -28,12 +54,6 @@ const tooltipStyle = {
     // With full (non-truncated) URLs the box can span several lines, and
     // tracking the cursor would let it sit right on top of the hovered point.
     position: { y: 0 },
-    // Prefer the left side of the cursor. Our charts scroll horizontally past
-    // their visible width, and recharts only knows the *full* chart's bounds
-    // (not our external scroll clipping). Placing right-first regularly pushed
-    // the box into the not-yet-scrolled-into-view (and thus clipped) region.
-    // Everything to the left of the cursor has already been scrolled past, so
-    // it's always visible.
     reverseDirection: { x: true },
 }
 const axisProps = { stroke: 'transparent', tick: { fill: '#9ca3af', fontSize: 11 } }
@@ -45,8 +65,22 @@ const intervalAxisProps = {
     interval: 0,
     tickFormatter: v => `#${v}`,
 }
-// Used only inside the fixed y-axis panel's own chart, to keep its x-scale/margins
-// identical to the scrollable chart without rendering a second visible x-axis.
+
+const MAX_TICK_LABELS = 15
+// Recharts' numeric XAxis `interval` prop just skips a fixed count starting
+// from the first tick, so it doesn't reliably land back on the last one —
+// with many intervals packed into a fixed-width chart we still want the
+// first and last "#N" always visible, thinning only what's between them.
+const thinTicks = (ticks) => {
+    if (ticks.length <= MAX_TICK_LABELS) return ticks
+    const step = Math.ceil((ticks.length - 1) / (MAX_TICK_LABELS - 1))
+    const kept = []
+    for (let i = 0; i < ticks.length; i += step) kept.push(ticks[i])
+    if (kept[kept.length - 1] !== ticks[ticks.length - 1]) kept.push(ticks[ticks.length - 1])
+    return kept
+}
+// Used only inside the y-axis panel's own chart, to keep its x-scale/margins
+// identical to the real chart without rendering a second visible x-axis.
 // hide:true skips reserving the axis's layout height entirely (regardless of the height
 // prop's value), while the real chart's visible XAxis does reserve its default 30px, so
 // the two side-by-side charts ended up with different plot heights despite identical
@@ -112,71 +146,14 @@ const zoomedDomain = (data, keys, minSpan) => {
     return [ticks[0], ticks[ticks.length - 1]]
 }
 
-// Caption shown once, centered under the whole chart (fixed axis + scroll area).
-// Stays put regardless of horizontal scroll position, unlike an axis label baked
-// into the scrollable SVG would.
 const IntervalCaption = () => (
-    <p className="text-center text-[11px] text-gray-300 mt-1">Interval</p>
+    <p className="text-center text-[11px] text-gray-400 mt-1">Interval</p>
 )
 
-// One pixel width per interval tick, so with interval=0 (every label forced on)
-// there's always enough room for every "#N" label. The chart scrolls
-// horizontally instead of crowding or dropping labels on long sessions.
-const PX_PER_TICK = 40
-
-// Native scrollbars are unreliable here. macOS/Chrome overlay scrollbars stay
-// invisible regardless of CSS. Draw our own track + thumb from actual scroll
-// state instead, so the affordance renders identically on every browser/OS.
-const ChartScroll = ({ tickCount, children }) => {
-    const scrollRef = useRef(null)
-    const [overflowing, setOverflowing] = useState(false)
-    const [thumb, setThumb] = useState({ left: 0, width: 100 })
-
-    useEffect(() => {
-        const el = scrollRef.current
-        if (!el) return
-        const update = () => {
-            const isOverflowing = el.scrollWidth > el.clientWidth + 1
-            setOverflowing(isOverflowing)
-            if (isOverflowing) {
-                setThumb({
-                    left: (el.scrollLeft / el.scrollWidth) * 100,
-                    width: (el.clientWidth / el.scrollWidth) * 100,
-                })
-            }
-        }
-        update()
-        el.addEventListener('scroll', update)
-        window.addEventListener('resize', update)
-        return () => {
-            el.removeEventListener('scroll', update)
-            window.removeEventListener('resize', update)
-        }
-    }, [tickCount])
-
-    return (
-        <div className="flex-1 min-w-0">
-            <div ref={scrollRef} className="overflow-x-auto no-native-scrollbar">
-                <div style={{ width: `max(100%, ${tickCount * PX_PER_TICK}px)` }}>
-                    {children}
-                </div>
-            </div>
-            {overflowing && (
-                <div className="relative h-1 mt-2 rounded-full bg-gray-50 overflow-hidden">
-                    <div
-                        className="absolute top-0 h-full rounded-full bg-gray-200"
-                        style={{ left: `${thumb.left}%`, width: `${thumb.width}%` }}
-                    />
-                </div>
-            )}
-        </div>
-    )
-}
-
-// Renders just the y-axis, pinned outside the horizontally-scrolling chart so it
-// never scrolls off screen. Needs invisible series matching the real chart's
-// dataKey(s) — Recharts computes an "auto" domain from the plotted series, not
-// the raw data, so without them this axis's scale wouldn't match the real chart.
+// Renders just the y-axis as its own small chart alongside the real one. Needs
+// invisible series matching the real chart's dataKey(s) — Recharts computes an
+// "auto" domain from the plotted series, not the raw data, so without them
+// this axis's scale wouldn't match the real chart.
 const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false, minSpan }) => {
     const Chart = area ? AreaChart : LineChart
     const Series = area ? Area : Line
@@ -284,7 +261,8 @@ const WinnerBadge = ({ winner }) => {
 }
 
 const DeltaBadge = ({ delta, lowerIsBetter }) => {
-    if (delta === 0) return <span className="text-xs text-gray-400">N/A</span>
+    if (delta == null) return <span className="text-xs text-gray-400">N/A</span>
+    if (delta === 0) return <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Tied</span>
     const better = lowerIsBetter ? delta < 0 : delta > 0
     const sign = delta > 0 ? '+' : ''
     return (
@@ -295,7 +273,7 @@ const DeltaBadge = ({ delta, lowerIsBetter }) => {
 }
 
 const SectionHeader = ({ icon, title, subtitle }) => (
-    <div className="flex items-center gap-3 mb-6">
+    <div className="section-header flex items-center gap-3 mb-6">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-gray-100">
             {icon}
         </div>
@@ -342,6 +320,7 @@ const BlockDividers = ({ blocksA = [], blocksB = [] }) => (
 )
 
 const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, transform, unit, height = 180, blocksA, blocksB, minSpan }) => {
+    const [printRef, printWidth] = useContainerWidth()
     const chartData = buildMergedData(dataA, dataB, dataKey, transform, urlA, urlB)
     const ticks = chartData.map(d => d.run)
     const avgAVal = avg(chartData, 'A')
@@ -353,11 +332,11 @@ const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, tra
         <ChartCard title={title} subtitle={subtitle} winner={winner} avgA={fmtAvg(avgAVal)} avgB={fmtAvg(avgBVal)} unit={unit}>
             <div className="flex">
                 <FixedYAxis data={chartData} series={['A', 'B']} unit={unit} height={height} minSpan={minSpan} />
-                <ChartScroll tickCount={ticks.length}>
-                    <ResponsiveContainer width="100%" height={height}>
+                <div ref={printRef} className="flex-1 min-w-0">
+                    <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
                         <LineChart data={chartData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                            <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
+                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
                             <YAxis hide domain={zoomedDomain(chartData, ['A', 'B'], minSpan)} />
                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
@@ -365,7 +344,7 @@ const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, tra
                             <Line type="monotone" dataKey="B" stroke={COLOR_B} strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
                         </LineChart>
                     </ResponsiveContainer>
-                </ChartScroll>
+                </div>
             </div>
             <IntervalCaption />
         </ChartCard>
@@ -375,6 +354,8 @@ const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, tra
 /* ── main ─────────────────────────────────────────────────── */
 
 const ComparePanel = ({ dataA, dataB }) => {
+    const [heapPrintRef, heapPrintWidth] = useContainerWidth()
+    const [procMemPrintRef, procMemPrintWidth] = useContainerWidth()
     const fmtDate = iso => {
         const d = new Date(iso)
         return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) +
@@ -409,8 +390,8 @@ const ComparePanel = ({ dataA, dataB }) => {
     const procMemWinner = procMemAvgA !== null && procMemAvgB !== null ? (procMemAvgA < procMemAvgB ? 'A' : procMemAvgA > procMemAvgB ? 'B' : null) : null
 
     return (
-        <div className="bg-gray-50 min-h-screen px-6 py-10">
-            <div className="max-w-4xl mx-auto">
+        <div className="bg-gray-50 min-h-screen px-6 py-8">
+            <div className="max-w-340 mx-auto">
 
                 {/* ── Header ──────────────────────────────────── */}
                 <div className="bg-white border border-gray-100 rounded-2xl shadow-sm px-7 py-6 mb-8">
@@ -480,72 +461,76 @@ const ComparePanel = ({ dataA, dataB }) => {
                         subtitle="Core Web Vitals side-by-side with delta per metric"
                     />
 
-                    <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden mb-4">
-                        {/* Table column headers */}
-                        <div className="grid grid-cols-[1fr_auto_1fr] text-[11px] font-bold uppercase tracking-wider px-6 py-3 border-b border-gray-100 bg-gray-50/80">
-                            <span className="flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full" style={{ background: COLOR_A }} />Scan A
-                            </span>
-                            <span className="w-40 text-center text-gray-400">Metric</span>
-                            <span className="flex items-center justify-end gap-2">
-                                Scan B <span className="w-2 h-2 rounded-full" style={{ background: COLOR_B }} />
-                            </span>
+                    <div className="lh-compare-grid grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-4 items-start">
+
+                        {/* Individual parameter comparison */}
+                        <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+                            {/* Table column headers */}
+                            <div className="grid grid-cols-[1fr_auto_1fr] text-[11px] font-bold uppercase tracking-wider px-6 py-3 border-b border-gray-100 bg-gray-50/80">
+                                <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full" style={{ background: COLOR_A }} />Scan A
+                                </span>
+                                <span className="w-40 text-center text-gray-400">Metric</span>
+                                <span className="flex items-center justify-end gap-2">
+                                    Scan B <span className="w-2 h-2 rounded-full" style={{ background: COLOR_B }} />
+                                </span>
+                            </div>
+
+                            {lighthouseMetrics.map(({ key, label, unit, decimals }) => {
+                                const vA = dataA.lighthouseData[key]
+                                const vB = dataB.lighthouseData[key]
+                                const sA = getStatus(key, vA)
+                                const sB = getStatus(key, vB)
+                                const rawDelta = +(vB - vA).toFixed(decimals)
+                                const displayDelta = decimals === 0 ? Math.round(rawDelta) : rawDelta
+                                const fmt = v => decimals === 0 ? Math.round(v) : v.toFixed(decimals)
+
+                                return (
+                                    <div key={key} className="grid grid-cols-[1fr_auto_1fr] px-6 py-4 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors items-center">
+                                        <span className={`text-base font-bold ${statusValueColor(sA)}`}>
+                                            {fmt(vA)}{unit && <span className="text-xs font-normal text-gray-400 ml-1">{unit}</span>}
+                                        </span>
+                                        <div className="w-40 flex flex-col items-center gap-1.5">
+                                            <span className="text-xs text-gray-500">{label}</span>
+                                            <DeltaBadge delta={displayDelta} lowerIsBetter={true} />
+                                        </div>
+                                        <span className={`text-base font-bold text-right ${statusValueColor(sB)}`}>
+                                            {fmt(vB)}{unit && <span className="text-xs font-normal text-gray-400 ml-1">{unit}</span>}
+                                        </span>
+                                    </div>
+                                )
+                            })}
                         </div>
 
-                        {lighthouseMetrics.map(({ key, label, unit, decimals }) => {
-                            const vA = dataA.lighthouseData[key]
-                            const vB = dataB.lighthouseData[key]
-                            const sA = getStatus(key, vA)
-                            const sB = getStatus(key, vB)
-                            const rawDelta = +(vB - vA).toFixed(decimals)
-                            const displayDelta = decimals === 0 ? Math.round(rawDelta) : rawDelta
-                            const fmt = v => decimals === 0 ? Math.round(v) : v.toFixed(decimals)
-
-                            return (
-                                <div key={key} className="grid grid-cols-[1fr_auto_1fr] px-6 py-4 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors items-center">
-                                    <span className={`text-base font-bold ${statusValueColor(sA)}`}>
-                                        {fmt(vA)}{unit && <span className="text-xs font-normal text-gray-400 ml-1">{unit}</span>}
-                                    </span>
-                                    <div className="w-40 flex flex-col items-center gap-1.5">
-                                        <span className="text-xs text-gray-500">{label}</span>
-                                        <DeltaBadge delta={displayDelta} lowerIsBetter={true} />
-                                    </div>
-                                    <span className={`text-base font-bold text-right ${statusValueColor(sB)}`}>
-                                        {fmt(vB)}{unit && <span className="text-xs font-normal text-gray-400 ml-1">{unit}</span>}
-                                    </span>
-                                </div>
-                            )
-                        })}
-                    </div>
-
-                    {/* SEO & Accessibility scores */}
-                    <div className="grid grid-cols-2 gap-4">
-                        {[
-                            { label: 'SEO Score', keyA: 'seoScore', keyB: 'seoScore' },
-                            { label: 'Accessibility Score', keyA: 'accessibilityScore', keyB: 'accessibilityScore' },
-                        ].map(({ label, keyA, keyB }) => {
-                            const sA = dataA.lighthouseData[keyA]
-                            const sB = dataB.lighthouseData[keyB]
-                            const delta = sB - sA
-                            return (
-                                <div key={label} className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                                    <div className="flex items-center justify-between mb-5">
-                                        <p className="text-sm font-semibold text-gray-800">{label}</p>
-                                        <DeltaBadge delta={delta} lowerIsBetter={false} />
-                                    </div>
-                                    <div className="flex justify-around">
-                                        <div className="flex flex-col items-center gap-1">
-                                            <span className="w-2 h-2 rounded-full" style={{ background: COLOR_A }} />
-                                            <ScoreGauge label="Scan A" score={sA} />
+                        {/* SEO & Accessibility scores, stacked to align with the table on the left */}
+                        <div className="score-group flex flex-col gap-4">
+                            {[
+                                { label: 'SEO Score', keyA: 'seoScore', keyB: 'seoScore' },
+                                { label: 'Accessibility Score', keyA: 'accessibilityScore', keyB: 'accessibilityScore' },
+                            ].map(({ label, keyA, keyB }) => {
+                                const sA = dataA.lighthouseData[keyA]
+                                const sB = dataB.lighthouseData[keyB]
+                                const delta = sB - sA
+                                return (
+                                    <div key={label} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <p className="text-sm font-semibold text-gray-800">{label}</p>
+                                            <DeltaBadge delta={delta} lowerIsBetter={false} />
                                         </div>
-                                        <div className="flex flex-col items-center gap-1">
-                                            <span className="w-2 h-2 rounded-full" style={{ background: COLOR_B }} />
-                                            <ScoreGauge label="Scan B" score={sB} />
+                                        <div className="flex justify-around">
+                                            <div className="flex flex-col items-center gap-1">
+                                                <span className="w-2 h-2 rounded-full" style={{ background: COLOR_A }} />
+                                                <ScoreGauge label="Scan A" score={sA} />
+                                            </div>
+                                            <div className="flex flex-col items-center gap-1">
+                                                <span className="w-2 h-2 rounded-full" style={{ background: COLOR_B }} />
+                                                <ScoreGauge label="Scan B" score={sB} />
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            )
-                        })}
+                                )
+                            })}
+                        </div>
                     </div>
                 </section>
 
@@ -562,7 +547,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                         subtitle="Dual-line charts: Scan A (indigo) vs Scan B (amber)"
                     />
 
-                    <div className="flex flex-col gap-4">
+                    <div className="chart-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
 
                         <DualLineChart title="Script Duration" subtitle="JS execution time (ms)"
                             dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="scriptDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" minSpan={MIN_SPAN_MS} />
@@ -579,8 +564,8 @@ const ComparePanel = ({ dataA, dataB }) => {
                             winner={heapWinner} avgA={heapAvgA !== null ? +heapAvgA.toFixed(2) : null} avgB={heapAvgB !== null ? +heapAvgB.toFixed(2) : null} unit=" MB">
                             <div className="flex">
                                 <FixedYAxis data={heapData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <ChartScroll tickCount={heapTicks.length}>
-                                    <ResponsiveContainer width="100%" height={220}>
+                                <div ref={heapPrintRef} className="flex-1 min-w-0">
+                                    <ResponsiveContainer width={heapPrintWidth ?? '100%'} height={220}>
                                         <AreaChart data={heapData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                                             <defs>
                                                 <linearGradient id="gradA" x1="0" y1="0" x2="0" y2="1">
@@ -593,7 +578,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                                                 </linearGradient>
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={heapTicks} />
+                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(heapTicks)} />
                                             <YAxis hide domain={zoomedDomain(heapData, ['A', 'B'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
                                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
@@ -601,7 +586,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                                             <Area type="monotone" dataKey="B" stroke={COLOR_B} fill="url(#gradB)" strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
                                         </AreaChart>
                                     </ResponsiveContainer>
-                                </ChartScroll>
+                                </div>
                             </div>
                             <IntervalCaption />
                         </ChartCard>
@@ -611,8 +596,8 @@ const ComparePanel = ({ dataA, dataB }) => {
                             winner={procMemWinner} avgA={procMemAvgA !== null ? +procMemAvgA.toFixed(2) : null} avgB={procMemAvgB !== null ? +procMemAvgB.toFixed(2) : null} unit=" MB">
                             <div className="flex">
                                 <FixedYAxis data={procMemData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <ChartScroll tickCount={procMemTicks.length}>
-                                    <ResponsiveContainer width="100%" height={220}>
+                                <div ref={procMemPrintRef} className="flex-1 min-w-0">
+                                    <ResponsiveContainer width={procMemPrintWidth ?? '100%'} height={220}>
                                         <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                                             <defs>
                                                 <linearGradient id="procGradA" x1="0" y1="0" x2="0" y2="1">
@@ -625,7 +610,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                                                 </linearGradient>
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={procMemTicks} />
+                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(procMemTicks)} />
                                             <YAxis hide domain={zoomedDomain(procMemData, ['A', 'B'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
                                             <BlockDividers blocksA={blocksA} blocksB={blocksB} />
@@ -633,7 +618,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                                             <Area type="monotone" dataKey="B" stroke={COLOR_B} fill="url(#procGradB)" strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
                                         </AreaChart>
                                     </ResponsiveContainer>
-                                </ChartScroll>
+                                </div>
                             </div>
                             <IntervalCaption />
                         </ChartCard>
@@ -641,8 +626,13 @@ const ComparePanel = ({ dataA, dataB }) => {
                         <DualLineChart title="DOM Nodes" subtitle="Document node count"
                             dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="domNodes" minSpan={MIN_SPAN_COUNT} />
 
-                        <DualLineChart title="Event Listeners" subtitle="Active JS listeners"
-                            dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="jsEventListeners" minSpan={MIN_SPAN_COUNT} />
+                        {/* Odd chart out (7th), centered instead of hugging the left column */}
+                        <div className="chart-span-2 lg:col-span-2 flex justify-center">
+                            <div className="chart-half w-full lg:w-[calc(50%-0.5rem)]">
+                                <DualLineChart title="Event Listeners" subtitle="Active JS listeners"
+                                    dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="jsEventListeners" minSpan={MIN_SPAN_COUNT} />
+                            </div>
+                        </div>
 
                     </div>
                 </section>

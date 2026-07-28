@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'react-toastify'
 import { AppContext, PAGE_LOAD_ESTIMATE_SECONDS, LIGHTHOUSE_AUDIT_SECONDS } from '../context/AppContext'
@@ -54,22 +54,22 @@ const metricColor = (key, value) => {
 }
 
 const RUNTIME_METRICS = [
-    { label: 'JS Heap Used',       desc: 'JavaScript memory in use' },
-    { label: 'DOM Nodes',          desc: 'Total nodes in the document' },
-    { label: 'Event Listeners',    desc: 'Active JS event listeners' },
-    { label: 'Script Duration',    desc: 'Time spent executing scripts' },
-    { label: 'Task Duration',      desc: 'Total main-thread task time' },
-    { label: 'Layout Duration',    desc: 'Time spent on layout & paint' },
-    { label: 'Process Memory',     desc: 'OS-level renderer memory (RSS)' },
+    { label: 'JS Heap Used',    desc: 'Amount of JavaScript memory currently allocated and in use by the page' },
+    { label: 'DOM Nodes',       desc: "Total elements in the page's DOM tree; more nodes generally means slower renders" },
+    { label: 'Event Listeners', desc: 'Number of active JS event listeners attached across the page' },
+    { label: 'Script Duration', desc: 'Total time spent executing JavaScript on the main thread' },
+    { label: 'Task Duration',   desc: 'Total time spent on all main-thread tasks, including scripting and rendering' },
+    { label: 'Layout Duration', desc: 'Time spent recalculating layout and painting pixels to the screen' },
+    { label: 'Process Memory',  desc: "OS-level memory (RSS) used by the browser's renderer process for this tab" },
 ]
 
 const LIGHTHOUSE_DISPLAY = [
-    { label: 'LCP',   desc: 'Largest Contentful Paint' },
-    { label: 'FCP',   desc: 'First Contentful Paint' },
-    { label: 'TTFB',  desc: 'Time to First Byte' },
-    { label: 'TBT',   desc: 'Total Blocking Time' },
-    { label: 'SI',    desc: 'Speed Index' },
-    { label: 'CLS',   desc: 'Cumulative Layout Shift' },
+    { label: 'LCP',  name: 'Largest Contentful Paint', desc: 'Time for the largest visible element (image, text block, etc.) to finish rendering' },
+    { label: 'FCP',  name: 'First Contentful Paint',   desc: 'Time until the first piece of text or image is painted on screen' },
+    { label: 'TTFB', name: 'Time to First Byte',       desc: "Time for the server to respond with the page's first byte" },
+    { label: 'TBT',  name: 'Total Blocking Time',      desc: 'Total time the main thread was blocked, unable to respond to user input' },
+    { label: 'SI',   name: 'Speed Index',              desc: 'How quickly the page\'s content is visually displayed during load' },
+    { label: 'CLS',  name: 'Cumulative Layout Shift',  desc: 'How much visible content unexpectedly shifts position during load' },
 ]
 
 const Home = () => {
@@ -86,6 +86,31 @@ const Home = () => {
     const [durationMin, setDurationMin] = useState('')
     const [durationSec, setDurationSec] = useState('')
     const [showSelectorHelp, setShowSelectorHelp] = useState(false)
+    const [showAddStepMenu, setShowAddStepMenu] = useState(false)
+    const addStepMenuRef = useRef(null)
+
+    useEffect(() => {
+        if (!showAddStepMenu) return
+        const onClickOutside = (e) => { if (!addStepMenuRef.current?.contains(e.target)) setShowAddStepMenu(false) }
+        const onKey = (e) => { if (e.key === 'Escape') setShowAddStepMenu(false) }
+        document.addEventListener('mousedown', onClickOutside)
+        document.addEventListener('keydown', onKey)
+        return () => {
+            document.removeEventListener('mousedown', onClickOutside)
+            document.removeEventListener('keydown', onKey)
+        }
+    }, [showAddStepMenu])
+
+    // Auto-scroll the (fixed-height, scrollable) sequence list to the newest item
+    // whenever a step is added, so it doesn't silently land off-screen below the fold.
+    const seqScrollRef = useRef(null)
+    const prevSeqLengthRef = useRef(0)
+    useEffect(() => {
+        if (sequence.length > prevSeqLengthRef.current && seqScrollRef.current) {
+            seqScrollRef.current.scrollTo({ top: seqScrollRef.current.scrollHeight, behavior: 'smooth' })
+        }
+        prevSeqLengthRef.current = sequence.length
+    }, [sequence.length])
 
     // Total Duration's floor is just "long enough for a Lighthouse audit". Page
     // load isn't part of what Total Duration itself needs to cover (the server's
@@ -131,7 +156,7 @@ const Home = () => {
         }
     }, [])
 
-    const addActionStep   = () => setSequence([...sequence, { ...DEFAULT_STEP.scroll }])
+    const addActionStepOfType = (type) => { setSequence([...sequence, { ...DEFAULT_STEP[type] }]); setShowAddStepMenu(false) }
     const addAnalyseBlock = () => setSequence([...sequence, { type: 'analyse', intervals: '' }])
     const removeItem      = (i) => setSequence(sequence.filter((_, j) => j !== i))
 
@@ -292,11 +317,11 @@ const Home = () => {
             && !overBudget
 
     return (
-        <div className="min-h-full px-6 py-12">
-            <div className="max-w-7xl mx-auto">
+        <div className="min-h-full px-6 pt-7 pb-4">
+            <div className="max-w-340 mx-auto">
 
                 {/* Page header */}
-                <div className="mb-8">
+                <div className="mb-3">
                     <h1 className="text-2xl font-bold text-gray-900 tracking-tight">New Analysis</h1>
                     <p className="text-gray-500 text-sm mt-1">
                         {mode === 'manual'
@@ -306,14 +331,14 @@ const Home = () => {
                 </div>
 
                 {/* Main grid: form + sidebar */}
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
 
                     {/* ── Form card ──────────────────────────────────── */}
                     <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
                         <form onSubmit={onSubmitHandler}>
 
                             {/* Mode toggle */}
-                            <div className="px-7 pt-6 flex gap-2">
+                            <div className="px-7 pt-4 flex gap-2">
                                 <button type="button" onClick={() => setMode('auto')} disabled={loading}
                                     className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors disabled:opacity-50 ${
                                         mode === 'auto'
@@ -333,8 +358,8 @@ const Home = () => {
                             </div>
 
                             {/* URL */}
-                            <div className="px-7 py-6 border-b border-gray-100">
-                                <label className="block text-sm font-semibold text-gray-700 mb-3">Website URL</label>
+                            <div className="px-7 py-4 border-b border-gray-100">
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Website URL</label>
                                 <div className="relative">
                                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
                                         <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -393,7 +418,7 @@ const Home = () => {
 
                             {/* Live session */}
                             {mode === 'manual' && (
-                                <div className="px-7 py-6 border-b border-gray-100">
+                                <div className="px-7 py-5 border-b border-gray-100">
                                     <p className="text-sm font-semibold text-gray-700">Live Session</p>
                                     <p className="text-xs text-gray-400 mt-0.5 mb-4">
                                         A Chrome window will open, interact with the site yourself. Runtime metrics are captured automatically in the background until Total Duration ends.
@@ -435,8 +460,8 @@ const Home = () => {
 
                             {/* Sequence builder */}
                             {mode === 'auto' && (
-                            <div className="px-7 py-6 border-b border-gray-100">
-                                <div className="flex items-center justify-between mb-4">
+                            <div className="px-7 py-4 border-b border-gray-100">
+                                <div className="flex items-center justify-between mb-3">
                                     <div>
                                         <div className="flex items-center gap-1.5">
                                             <p className="text-sm font-semibold text-gray-700">Sequence</p>
@@ -502,8 +527,32 @@ const Home = () => {
                                     </div>
                                 )}
 
+                                <div className="flex gap-2 mb-3">
+                                    <div ref={addStepMenuRef} className="relative flex-1">
+                                        <button type="button" onClick={() => setShowAddStepMenu(o => !o)} disabled={loading}
+                                            className="w-full py-2.5 border border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50/50 transition-all disabled:opacity-50 font-medium">
+                                            + Add Step
+                                        </button>
+                                        {showAddStepMenu && (
+                                            <div className="absolute z-20 top-[calc(100%+4px)] left-0 w-48 bg-white border border-gray-200 rounded-lg shadow-lg py-1.5 overflow-hidden">
+                                                {Object.entries(STEP_LABELS).map(([type, label]) => (
+                                                    <button key={type} type="button" onClick={() => addActionStepOfType(type)}
+                                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-gray-600 hover:bg-gray-50">
+                                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STEP_DOT[type]}`} />
+                                                        {label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <button type="button" onClick={addAnalyseBlock} disabled={loading}
+                                        className="flex-1 py-2.5 border border-dashed border-purple-200 rounded-xl text-sm text-purple-400 hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50/50 transition-all disabled:opacity-50 font-medium">
+                                        + Add Analysis
+                                    </button>
+                                </div>
+
                                 {sequence.length === 0 && (
-                                    <div className="text-center py-10 border-2 border-dashed border-gray-100 rounded-xl mb-3">
+                                    <div className="text-center py-4 border-2 border-dashed border-gray-100 rounded-xl mb-3">
                                         <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                             <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                                 <path d="M12 5v14M5 12h14" strokeLinecap="round" />
@@ -514,7 +563,7 @@ const Home = () => {
                                     </div>
                                 )}
 
-                                <div className="space-y-2.5">
+                                <div ref={seqScrollRef} className={`space-y-2.5 overflow-y-auto pr-1 -mr-1 ${sequence.length > 0 ? 'h-105' : ''}`}>
                                     {sequence.map((item, i) => {
 
                                         if (item.type === 'analyse') return (
@@ -538,7 +587,7 @@ const Home = () => {
                                                             className="w-14 bg-white border border-purple-200 rounded-lg px-2 py-1 text-sm text-center font-semibold text-purple-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
                                                         />
                                                     </div>
-                                                    <button type="button" onClick={() => removeItem(i)} disabled={loading} className="ml-auto text-gray-300 hover:text-red-400 transition-colors shrink-0 disabled:opacity-50">
+                                                    <button type="button" onClick={() => removeItem(i)} disabled={loading} className="ml-auto text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 -m-1 transition-colors shrink-0 disabled:opacity-50">
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" /></svg>
                                                     </button>
                                                 </div>
@@ -554,7 +603,7 @@ const Home = () => {
                                                     <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full shrink-0 w-10 text-center">
                                                         {stepTimeSeconds(item)}s
                                                     </span>
-                                                    <button type="button" onClick={() => removeItem(i)} disabled={loading} className="ml-auto text-gray-300 hover:text-red-400 transition-colors shrink-0 disabled:opacity-50">
+                                                    <button type="button" onClick={() => removeItem(i)} disabled={loading} className="ml-auto text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 -m-1 transition-colors shrink-0 disabled:opacity-50">
                                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" /></svg>
                                                     </button>
                                                 </div>
@@ -622,22 +671,11 @@ const Home = () => {
                                         )
                                     })}
                                 </div>
-
-                                <div className="flex gap-2 mt-3">
-                                    <button type="button" onClick={addActionStep} disabled={loading}
-                                        className="flex-1 py-2.5 border border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50/50 transition-all disabled:opacity-50 font-medium">
-                                        + Add Step
-                                    </button>
-                                    <button type="button" onClick={addAnalyseBlock} disabled={loading}
-                                        className="flex-1 py-2.5 border border-dashed border-purple-200 rounded-xl text-sm text-purple-400 hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50/50 transition-all disabled:opacity-50 font-medium">
-                                        + Add Analysis
-                                    </button>
-                                </div>
                             </div>
                             )}
 
                             {/* Submit / Progress */}
-                            <div className="px-7 py-6 bg-gray-50/50">
+                            <div className="px-7 py-4 bg-gray-50/50">
                                 {loading ? (
                                     <div>
                                         <div className="flex items-center justify-between mb-3">
@@ -671,11 +709,36 @@ const Home = () => {
                     </div>
 
                     {/* ── Right sidebar ──────────────────────────────── */}
-                    <div className="space-y-4">
+                    <div className="flex flex-col gap-4 h-full">
 
-                        {/* Recent analyses */}
+                        {/* Quick tips, kept to its own natural size instead of stretching
+                            to match the form card, which grows/shrinks with the sequence. */}
                         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-                            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <div className="px-5 py-4 border-b border-gray-100">
+                                <p className="text-sm font-semibold text-gray-800">Quick Tips</p>
+                            </div>
+                            <div className="px-5 py-4 space-y-4">
+                                {[
+                                    'Any public URL works, including password-protected pages via the Login step.',
+                                    'Mix action steps with Analyse blocks to capture metrics exactly when you want them.',
+                                    'Leave the sequence empty to run just a Lighthouse audit, no scripting required.',
+                                    'Prefer not to script anything? Switch to Live Session and drive the site yourself.',
+                                ].map((tip, i) => (
+                                    <div key={i} className="flex items-start gap-2.5">
+                                        <span className="w-4 h-4 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">{i + 1}</span>
+                                        <p className="text-xs text-gray-500 leading-relaxed">{tip}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Recent analyses. Stretches to bottom-align with the form card
+                            regardless of how tall the form is (empty sequence vs many
+                            steps) or how many past analyses exist; its own item list is
+                            separately capped and scrollable so it never grows past the
+                            space it's given. */}
+                        <div className="flex-1 flex flex-col bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
                                 <p className="text-sm font-semibold text-gray-800">Recent Analyses</p>
                                 {recent.length > 0 && (
                                     <button onClick={() => navigate('/dashboard/history')}
@@ -686,7 +749,7 @@ const Home = () => {
                             </div>
 
                             {recent.length === 0 ? (
-                                <div className="px-5 py-8 text-center">
+                                <div className="flex-1 flex flex-col items-center justify-center px-5 py-8 text-center">
                                     <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                         <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                             <circle cx="12" cy="12" r="10" />
@@ -697,7 +760,7 @@ const Home = () => {
                                     <p className="text-xs text-gray-400 mt-1">Your past scans will appear here</p>
                                 </div>
                             ) : (
-                                <div className="divide-y divide-gray-100">
+                                <div className="flex-1 divide-y divide-gray-100 overflow-y-auto">
                                     {recent.map((a) => {
                                         const lcp = a.lighthouseData?.lcp
                                         const tbt = a.lighthouseData?.tbt
@@ -757,7 +820,6 @@ const Home = () => {
                             )}
                         </div>
 
-
                     </div>
                 </div>
 
@@ -782,11 +844,14 @@ const Home = () => {
                                     <p className="text-xs text-gray-400">Core Web Vitals & performance scores</p>
                                 </div>
                             </div>
-                            <div className="space-y-3">
-                                {LIGHTHOUSE_DISPLAY.map(({ label, desc }) => (
-                                    <div key={label} className="flex items-center gap-3">
-                                        <span className="w-8 text-xs font-bold text-gray-700 shrink-0">{label}</span>
-                                        <span className="text-xs text-gray-500">{desc}</span>
+                            <div className="space-y-4">
+                                {LIGHTHOUSE_DISPLAY.map(({ label, name, desc }) => (
+                                    <div key={label} className="flex items-start gap-3">
+                                        <span className="w-8 text-xs font-bold text-gray-700 shrink-0 mt-0.5">{label}</span>
+                                        <div>
+                                            <p className="text-xs font-semibold text-gray-700">{name}</p>
+                                            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -805,11 +870,16 @@ const Home = () => {
                                     <p className="text-xs text-gray-400">Captured at each Analyse block interval</p>
                                 </div>
                             </div>
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                                 {RUNTIME_METRICS.map(({ label, desc }) => (
-                                    <div key={label} className="flex items-center gap-3">
-                                        <span className="w-28 text-xs font-bold text-gray-700 shrink-0">{label}</span>
-                                        <span className="text-xs text-gray-500">{desc}</span>
+                                    <div key={label} className="flex items-start gap-3">
+                                        <span className="w-8 shrink-0 mt-1.5 flex justify-center">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                                        </span>
+                                        <div>
+                                            <p className="text-xs font-semibold text-gray-700">{label}</p>
+                                            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
+                                        </div>
                                     </div>
                                 ))}
                             </div>

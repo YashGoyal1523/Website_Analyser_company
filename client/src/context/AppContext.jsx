@@ -15,16 +15,14 @@ const AppContextProvider = ({ children }) => {
     const [analysisData, setAnalysisData] = useState(null)
     const [loading, setLoading] = useState(false)
     const [progress, setProgress] = useState({ elapsed: 0, total: 0 })
-    const [user, setUser] = useState(null)
     const [token, setToken] = useState(localStorage.getItem('token') || '')
+    const [user, setUser] = useState(() => {
+        const savedUser = localStorage.getItem('user')
+        return savedUser && token ? JSON.parse(savedUser) : null
+    })
     const [userAnalyses, setUserAnalyses] = useState([])
     const [showAuth, setShowAuth] = useState(false)
     const [authMode, setAuthMode] = useState('login')
-
-    useEffect(() => {
-        const savedUser = localStorage.getItem('user')
-        if (savedUser && token) setUser(JSON.parse(savedUser))
-    }, [])
 
     const clearSession = () => {
         setToken('')

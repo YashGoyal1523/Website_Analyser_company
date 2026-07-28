@@ -28,7 +28,7 @@ const AnalysisView = () => {
             }
         }
         load()
-    }, [id])
+    }, [id, backendUrl, token])
 
     if (error) return (
         <div className="flex flex-col items-center justify-center py-32 gap-3">

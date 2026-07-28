@@ -7,6 +7,32 @@ import {
 import { lighthouseMetrics } from '../assets/assets'
 import { buildBlocks, withTiming, formatElapsed } from '../utils/blocks'
 
+// FixedYAxis (a fixed pixel `width` number) always renders correctly in a
+// printed/PDF export; the main chart right next to it (Recharts'
+// ResponsiveContainer with width="100%" inside a flex child) reliably does
+// not — real exported PDFs confirm every runtime chart's line and x-axis go
+// missing while its own y-axis panel renders fine. Recharts resolving
+// width="100%" via its own ResizeObserver is the common thread between every
+// broken chart. Measuring the container ourselves with a plain ResizeObserver
+// and always handing Recharts a concrete pixel number — for both screen and
+// print, not just conditionally at print time — bypasses that resolution path
+// entirely instead of trying to catch it after the fact.
+const useContainerWidth = () => {
+    const ref = useRef(null)
+    const [width, setWidth] = useState(null)
+    useEffect(() => {
+        const el = ref.current
+        if (!el) return
+        const observer = new ResizeObserver(([entry]) => {
+            const w = entry.contentRect.width
+            if (w > 0) setWidth(w)
+        })
+        observer.observe(el)
+        return () => observer.disconnect()
+    }, [])
+    return [ref, width]
+}
+
 /* ── helpers ─────────────────────────────────────────────── */
 
 // Minimum Y-axis span per metric family (see zoomedDomain below) — how tight the axis
@@ -48,12 +74,6 @@ const tooltipStyle = {
     // with full (non-truncated) URLs the box can span several lines, and
     // tracking the cursor would let it sit right on top of the hovered point.
     position: { y: 0 },
-    // Prefer the left side of the cursor. Our charts scroll horizontally past
-    // their visible width, and recharts only knows the *full* chart's bounds
-    // (not our external scroll clipping) — placing right-first regularly pushed
-    // the box into the not-yet-scrolled-into-view (and thus clipped) region.
-    // Everything to the left of the cursor has already been scrolled past, so
-    // it's always visible.
     reverseDirection: { x: true },
 }
 const axisProps = { stroke: 'transparent', tick: { fill: '#9ca3af', fontSize: 11 } }
@@ -65,8 +85,22 @@ const intervalAxisProps = {
     interval: 0,
     tickFormatter: v => `#${v}`,
 }
-// Used only inside the fixed y-axis panel's own chart, to keep its x-scale/margins
-// identical to the scrollable chart without rendering a second visible x-axis.
+
+const MAX_TICK_LABELS = 15
+// Recharts' numeric XAxis `interval` prop just skips a fixed count starting
+// from the first tick, so it doesn't reliably land back on the last one —
+// with many intervals packed into a fixed-width chart we still want the
+// first and last "#N" always visible, thinning only what's between them.
+const thinTicks = (ticks) => {
+    if (ticks.length <= MAX_TICK_LABELS) return ticks
+    const step = Math.ceil((ticks.length - 1) / (MAX_TICK_LABELS - 1))
+    const kept = []
+    for (let i = 0; i < ticks.length; i += step) kept.push(ticks[i])
+    if (kept[kept.length - 1] !== ticks[ticks.length - 1]) kept.push(ticks[ticks.length - 1])
+    return kept
+}
+// Used only inside the y-axis panel's own chart, to keep its x-scale/margins
+// identical to the real chart without rendering a second visible x-axis.
 // hide:true skips reserving the axis's layout height entirely (regardless of the height
 // prop's value), while the real chart's visible XAxis does reserve its default 30px — so
 // the two side-by-side charts ended up with different plot heights despite identical
@@ -132,71 +166,14 @@ const zoomedDomain = (data, keys, minSpan) => {
     return [ticks[0], ticks[ticks.length - 1]]
 }
 
-// Caption shown once, centered under the whole chart (fixed axis + scroll area) —
-// stays put regardless of horizontal scroll position, unlike an axis label baked
-// into the scrollable SVG would.
 const IntervalCaption = () => (
-    <p className="text-center text-[11px] text-gray-300 mt-1">Interval</p>
+    <p className="text-center text-[11px] text-gray-400 mt-1">Interval</p>
 )
 
-// One pixel width per interval tick, so with interval=0 (every label forced on)
-// there's always enough room for every "#N" label — the chart scrolls
-// horizontally instead of crowding or dropping labels on long sessions.
-const PX_PER_TICK = 40
-
-// Native scrollbars are unreliable here — macOS/Chrome overlay scrollbars stay
-// invisible regardless of CSS. Draw our own track + thumb from actual scroll
-// state instead, so the affordance renders identically on every browser/OS.
-const ChartScroll = ({ tickCount, children }) => {
-    const scrollRef = useRef(null)
-    const [overflowing, setOverflowing] = useState(false)
-    const [thumb, setThumb] = useState({ left: 0, width: 100 })
-
-    useEffect(() => {
-        const el = scrollRef.current
-        if (!el) return
-        const update = () => {
-            const isOverflowing = el.scrollWidth > el.clientWidth + 1
-            setOverflowing(isOverflowing)
-            if (isOverflowing) {
-                setThumb({
-                    left: (el.scrollLeft / el.scrollWidth) * 100,
-                    width: (el.clientWidth / el.scrollWidth) * 100,
-                })
-            }
-        }
-        update()
-        el.addEventListener('scroll', update)
-        window.addEventListener('resize', update)
-        return () => {
-            el.removeEventListener('scroll', update)
-            window.removeEventListener('resize', update)
-        }
-    }, [tickCount])
-
-    return (
-        <div className="flex-1 min-w-0">
-            <div ref={scrollRef} className="overflow-x-auto no-native-scrollbar">
-                <div style={{ width: `max(100%, ${tickCount * PX_PER_TICK}px)` }}>
-                    {children}
-                </div>
-            </div>
-            {overflowing && (
-                <div className="relative h-1 mt-2 rounded-full bg-gray-50 overflow-hidden">
-                    <div
-                        className="absolute top-0 h-full rounded-full bg-gray-200"
-                        style={{ left: `${thumb.left}%`, width: `${thumb.width}%` }}
-                    />
-                </div>
-            )}
-        </div>
-    )
-}
-
-// Renders just the y-axis, pinned outside the horizontally-scrolling chart so it
-// never scrolls off screen. Needs an invisible series matching the real chart's
-// dataKey(s) — Recharts computes an "auto" domain from the plotted series, not
-// the raw data, so without one this axis's scale wouldn't match the real chart.
+// Renders just the y-axis as its own small chart alongside the real one. Needs
+// an invisible series matching the real chart's dataKey(s) — Recharts computes
+// an "auto" domain from the plotted series, not the raw data, so without one
+// this axis's scale wouldn't match the real chart.
 const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false, minSpan }) => {
     const Chart = area ? AreaChart : LineChart
     const Series = area ? Area : Line
@@ -281,7 +258,7 @@ const ScoreGauge = ({ label, score }) => {
 }
 
 const SectionHeader = ({ icon, title, subtitle }) => (
-    <div className="flex items-center gap-3 mb-6">
+    <div className="section-header flex items-center gap-3 mb-6">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-gray-100">
             {icon}
         </div>
@@ -308,15 +285,17 @@ const BlockDividers = ({ blocks }) =>
             stroke="#cbd5e1" strokeDasharray="4 3" strokeWidth={1.5} />
     ))
 
-const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = [], minSpan }) => (
+const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = [], minSpan }) => {
+    const [printRef, printWidth] = useContainerWidth()
+    return (
     <div>
         <div className="flex">
             <FixedYAxis data={data} series={[dataKey]} unit={unit} height={height} minSpan={minSpan} />
-            <ChartScroll tickCount={ticks.length}>
-                <ResponsiveContainer width="100%" height={height}>
+            <div ref={printRef} className="flex-1 min-w-0">
+                <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
                     <LineChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                        <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
+                        <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
                         <YAxis hide domain={zoomedDomain(data, [dataKey], minSpan)} />
                         <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
                         <BlockDividers blocks={blocks} />
@@ -324,16 +303,19 @@ const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = 
                             dot={{ r: 3, fill: color, strokeWidth: 0 }} activeDot={{ r: 5 }} />
                     </LineChart>
                 </ResponsiveContainer>
-            </ChartScroll>
+            </div>
         </div>
         <IntervalCaption />
     </div>
-)
+    )
+}
 
 /* ── main ─────────────────────────────────────────────────── */
 
 const ResultPanel = ({ data }) => {
     const { url, lighthouseData, runtimeData = [] } = data
+    const [heapPrintRef, heapPrintWidth] = useContainerWidth()
+    const [procMemPrintRef, procMemPrintWidth] = useContainerWidth()
 
     const blocks = withTiming(buildBlocks(data.sequence), runtimeData)
     const ticks = runtimeData.map(r => r.run)
@@ -373,8 +355,8 @@ const ResultPanel = ({ data }) => {
         : null
 
     return (
-        <div className="bg-gray-50 min-h-screen px-6 py-10">
-            <div className="max-w-4xl mx-auto">
+        <div className="bg-gray-50 min-h-screen px-6 py-8">
+            <div className="max-w-340 mx-auto">
 
                 {/* ── Header ──────────────────────────────────── */}
                 <div className="bg-white border border-gray-100 rounded-2xl shadow-sm px-7 py-6 mb-8 flex items-start justify-between gap-4">
@@ -427,7 +409,7 @@ const ResultPanel = ({ data }) => {
                         subtitle="Core Web Vitals measured via Google Lighthouse v11"
                     />
 
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="lh-metrics-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
                         {lighthouseMetrics.map(({ key, label, unit, decimals }) => {
                             const value  = lighthouseData[key]
                             const status = getStatus(key, value)
@@ -444,7 +426,7 @@ const ResultPanel = ({ data }) => {
                         })}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="score-group grid grid-cols-2 gap-4">
                         <ScoreGauge label="SEO Score"           score={lighthouseData.seoScore} />
                         <ScoreGauge label="Accessibility Score" score={lighthouseData.accessibilityScore} />
                     </div>
@@ -463,7 +445,7 @@ const ResultPanel = ({ data }) => {
                         subtitle="JS heap, DOM nodes, event listeners and CPU timings over time"
                     />
 
-                    <div className="flex flex-col gap-4">
+                    <div className="chart-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
 
                         <ChartCard title="Script Duration" subtitle="Time executing JS (ms)">
                             <MetricLine data={cpuData} dataKey="Script" color="#6366f1" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} />
@@ -480,8 +462,8 @@ const ResultPanel = ({ data }) => {
                         <ChartCard title="JS Heap Memory" subtitle="JavaScript memory in use (MB)">
                             <div className="flex">
                                 <FixedYAxis data={memData} series={['Heap MB']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <ChartScroll tickCount={ticks.length}>
-                                    <ResponsiveContainer width="100%" height={220}>
+                                <div ref={heapPrintRef} className="flex-1 min-w-0">
+                                    <ResponsiveContainer width={heapPrintWidth ?? '100%'} height={220}>
                                         <AreaChart data={memData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                                             <defs>
                                                 <linearGradient id="heapGrad" x1="0" y1="0" x2="0" y2="1">
@@ -490,7 +472,7 @@ const ResultPanel = ({ data }) => {
                                                 </linearGradient>
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
+                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
                                             <YAxis hide domain={zoomedDomain(memData, ['Heap MB'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
                                             <BlockDividers blocks={blocks} />
@@ -498,7 +480,7 @@ const ResultPanel = ({ data }) => {
                                                 strokeWidth={2} dot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }} activeDot={{ r: 5 }} />
                                         </AreaChart>
                                     </ResponsiveContainer>
-                                </ChartScroll>
+                                </div>
                             </div>
                             <IntervalCaption />
                         </ChartCard>
@@ -506,8 +488,8 @@ const ResultPanel = ({ data }) => {
                         <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of the page's Chrome renderer process (MB)">
                             <div className="flex">
                                 <FixedYAxis data={procMemData} series={['Process RSS MB']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <ChartScroll tickCount={ticks.length}>
-                                    <ResponsiveContainer width="100%" height={220}>
+                                <div ref={procMemPrintRef} className="flex-1 min-w-0">
+                                    <ResponsiveContainer width={procMemPrintWidth ?? '100%'} height={220}>
                                         <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
                                             <defs>
                                                 <linearGradient id="procMemGrad" x1="0" y1="0" x2="0" y2="1">
@@ -516,7 +498,7 @@ const ResultPanel = ({ data }) => {
                                                 </linearGradient>
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={ticks} />
+                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
                                             <YAxis hide domain={zoomedDomain(procMemData, ['Process RSS MB'], MIN_SPAN_MB)} />
                                             <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
                                             <BlockDividers blocks={blocks} />
@@ -524,7 +506,7 @@ const ResultPanel = ({ data }) => {
                                                 strokeWidth={2} dot={{ r: 3, fill: '#f97316', strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
                                         </AreaChart>
                                     </ResponsiveContainer>
-                                </ChartScroll>
+                                </div>
                             </div>
                             <IntervalCaption />
                         </ChartCard>
@@ -533,9 +515,14 @@ const ResultPanel = ({ data }) => {
                             <MetricLine data={domData} dataKey="DOM Nodes" color="#38bdf8" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} />
                         </ChartCard>
 
-                        <ChartCard title="Event Listeners" subtitle="Active JS event listeners">
-                            <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} />
-                        </ChartCard>
+                        {/* Odd chart out (7th), centered instead of hugging the left column */}
+                        <div className="chart-span-2 lg:col-span-2 flex justify-center">
+                            <div className="chart-half w-full lg:w-[calc(50%-0.5rem)]">
+                                <ChartCard title="Event Listeners" subtitle="Active JS event listeners">
+                                    <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} />
+                                </ChartCard>
+                            </div>
+                        </div>
 
                     </div>
                 </section>

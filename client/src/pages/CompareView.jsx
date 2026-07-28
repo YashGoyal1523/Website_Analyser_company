@@ -30,7 +30,7 @@ const CompareView = () => {
             }
         }
         load()
-    }, [idA, idB])
+    }, [idA, idB, backendUrl, token])
 
     if (error) return (
         <div className="flex flex-col items-center justify-center py-32 gap-3">
