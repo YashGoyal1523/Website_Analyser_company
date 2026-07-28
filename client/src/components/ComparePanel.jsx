@@ -64,6 +64,13 @@ const intervalAxisProps = {
     allowDecimals: false,
     interval: 0,
     tickFormatter: v => `#${v}`,
+    // The first/last tick's label is centered directly on the plot's edge (the domain
+    // has no padding), so its text otherwise hangs half off the chart and gets clipped
+    // by the SVG's own bounds — worse the more digits the run number has (e.g. #118
+    // clips more than #6). Padding insets the plotted range from the axis's pixel
+    // width without touching the data domain, giving both edge labels room to render
+    // in full.
+    padding: { left: 12, right: 12 },
 }
 
 const MAX_TICK_LABELS = 15
