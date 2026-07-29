@@ -10,12 +10,12 @@ import { buildBlocks, withTiming, formatElapsed } from '../utils/blocks'
 // FixedYAxis (a fixed pixel `width` number) always renders correctly in a
 // printed/PDF export; the main chart right next to it (Recharts'
 // ResponsiveContainer with width="100%" inside a flex child) reliably does
-// not — real exported PDFs confirm every runtime chart's line and x-axis go
+// not - real exported PDFs confirm every runtime chart's line and x-axis go
 // missing while its own y-axis panel renders fine. Recharts resolving
 // width="100%" via its own ResizeObserver is the common thread between every
 // broken chart. Measuring the container ourselves with a plain ResizeObserver
-// and always handing Recharts a concrete pixel number — for both screen and
-// print, not just conditionally at print time — bypasses that resolution path
+// and always handing Recharts a concrete pixel number - for both screen and
+// print, not just conditionally at print time - bypasses that resolution path
 // entirely instead of trying to catch it after the fact.
 const useContainerWidth = () => {
     const ref = useRef(null)
@@ -35,7 +35,7 @@ const useContainerWidth = () => {
 
 /* ── helpers ─────────────────────────────────────────────── */
 
-// Minimum Y-axis span per metric family (see zoomedDomain below) — how tight the axis
+// Minimum Y-axis span per metric family (see zoomedDomain below) - how tight the axis
 // is allowed to zoom before a flat-looking line is just noise being exaggerated.
 const MIN_SPAN_MS    = 40  // Script/Task/Layout Duration
 const MIN_SPAN_MB    = 2   // JS Heap / Process Memory
@@ -70,7 +70,7 @@ const tooltipStyle = {
     contentStyle: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, fontSize: 12, boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.07)', whiteSpace: 'normal' },
     labelStyle:   { color: '#111827', fontWeight: 600 },
     itemStyle:    { color: '#374151' },
-    // Pin to the top of the chart instead of following the cursor vertically —
+    // Pin to the top of the chart instead of following the cursor vertically -
     // with full (non-truncated) URLs the box can span several lines, and
     // tracking the cursor would let it sit right on top of the hovered point.
     position: { y: 0 },
@@ -86,7 +86,7 @@ const intervalAxisProps = {
     tickFormatter: v => `#${v}`,
     // The first/last tick's label is centered directly on the plot's edge (the domain
     // has no padding), so its text otherwise hangs half off the chart and gets clipped
-    // by the SVG's own bounds — worse the more digits the run number has (e.g. #118
+    // by the SVG's own bounds - worse the more digits the run number has (e.g. #118
     // clips more than #6). Padding insets the plotted range from the axis's pixel
     // width without touching the data domain, giving both edge labels room to render
     // in full.
@@ -95,7 +95,7 @@ const intervalAxisProps = {
 
 const MAX_TICK_LABELS = 15
 // Recharts' numeric XAxis `interval` prop just skips a fixed count starting
-// from the first tick, so it doesn't reliably land back on the last one —
+// from the first tick, so it doesn't reliably land back on the last one -
 // with many intervals packed into a fixed-width chart we still want the
 // first and last "#N" always visible, thinning only what's between them.
 const thinTicks = (ticks) => {
@@ -109,7 +109,7 @@ const thinTicks = (ticks) => {
 // Used only inside the y-axis panel's own chart, to keep its x-scale/margins
 // identical to the real chart without rendering a second visible x-axis.
 // hide:true skips reserving the axis's layout height entirely (regardless of the height
-// prop's value), while the real chart's visible XAxis does reserve its default 30px — so
+// prop's value), while the real chart's visible XAxis does reserve its default 30px - so
 // the two side-by-side charts ended up with different plot heights despite identical
 // margins, and this panel's "0" gridline sat 30px below the real chart's. Disabling the
 // visible pieces individually (instead of `hide`) keeps this axis "active" for layout so
@@ -130,9 +130,9 @@ const niceStep = (span) => {
 }
 
 // Zooms the axis to the data's actual range (with headroom) rather than forcing a 0
-// baseline — for a metric like Task Duration hovering at 60-65ms, a 0-800ms axis
+// baseline - for a metric like Task Duration hovering at 60-65ms, a 0-800ms axis
 // flattens a real 5ms drift into an invisible sliver. The one thing that makes zooming
-// risky is a metric that's naturally just noisy — a ±2ms wobble in an otherwise flat
+// risky is a metric that's naturally just noisy - a ±2ms wobble in an otherwise flat
 // line would get blown up into what looks like a dramatic spike if the domain zoomed in
 // arbitrarily tight. minSpan is the floor against that: the axis never zooms in past a
 // range of that size, however flat the actual data is, so jitter can't be mistaken for
@@ -140,9 +140,9 @@ const niceStep = (span) => {
 // headroom would otherwise push it there.
 //
 // Ticks are computed here too, from the same step, instead of leaving Recharts to pick
-// its own — its internal "nice step" algorithm doesn't use our 1/2/5 rule, so a domain
+// its own - its internal "nice step" algorithm doesn't use our 1/2/5 rule, so a domain
 // boundary we've already rounded (say, top = 500) can end up out of step with where its
-// own tick generator wants to land (stepping by 150: 0, 150, 300, 450, 600) — 600 gets
+// own tick generator wants to land (stepping by 150: 0, 150, 300, 450, 600) - 600 gets
 // clipped for exceeding our domain, and the survivor closest to the boundary (450) then
 // gets dropped too for sitting too close to the 500 label, leaving uneven gaps. Deriving
 // the step and the domain together means there's nothing left for the two to disagree on.
@@ -178,7 +178,7 @@ const IntervalCaption = () => (
 )
 
 // Renders just the y-axis as its own small chart alongside the real one. Needs
-// an invisible series matching the real chart's dataKey(s) — Recharts computes
+// an invisible series matching the real chart's dataKey(s) - Recharts computes
 // an "auto" domain from the plotted series, not the raw data, so without one
 // this axis's scale wouldn't match the real chart.
 const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false, minSpan }) => {
@@ -290,7 +290,7 @@ const ExpandButton = ({ onClick }) => (
 )
 
 // Re-renders the same chart at a larger size in an overlay rather than
-// building a separate "expanded" chart implementation — every chart already
+// building a separate "expanded" chart implementation - every chart already
 // takes `height` as a prop, so the modal just mounts it again with a bigger one.
 const ChartExpandModal = ({ title, subtitle, onClose, children }) => {
     useEffect(() => {
@@ -407,7 +407,7 @@ const HeapChart = ({ data, ticks, blocks, height = 220, gradId = 'heapGrad' }) =
     )
 }
 
-// OS-level RSS chart body — same rationale as HeapChart above.
+// OS-level RSS chart body - same rationale as HeapChart above.
 const ProcMemChart = ({ data, ticks, blocks, height = 220, gradId = 'procMemGrad' }) => {
     const [printRef, printWidth] = useContainerWidth()
     return (
@@ -462,7 +462,7 @@ const ResultPanel = ({ data }) => {
         'Heap MB': +(r.jsHeapUsedSize / 1024 / 1024).toFixed(2),
     }))
 
-    // OS-level RSS of the page's Chrome renderer process(es) — the same figure
+    // OS-level RSS of the page's Chrome renderer process(es) - the same figure
     // Chrome's own Task Manager shows for a tab, distinct from the V8 heap above.
     const procMemData = runtimeData.map(r => ({
         run: r.run,

@@ -5,7 +5,7 @@ import { toast } from 'react-toastify'
 export const AppContext = createContext()
 
 // Measured directly against real sites (browser launch + a 3-category audit:
-// performance/accessibility/seo) — ranged ~9-18.5s; 12 is a middle-ground estimate,
+// performance/accessibility/seo) - ranged ~9-18.5s; 12 is a middle-ground estimate,
 // not a tight bound. Keep in sync with the server's copy of this constant.
 export const LIGHTHOUSE_AUDIT_SECONDS = 12
 export const PAGE_LOAD_ESTIMATE_SECONDS = 8
@@ -34,7 +34,7 @@ const AppContextProvider = ({ children }) => {
     }
 
     // A 401 on a request that carried a bearer token means the server rejected
-    // that token (expired/invalid) — the client would otherwise sit on a stale
+    // that token (expired/invalid) - the client would otherwise sit on a stale
     // token forever, silently failing every authenticated call until the user
     // happens to log out manually. Only requests that sent Authorization are
     // treated this way, so a genuine login/register 401 (wrong password, no
@@ -178,7 +178,7 @@ const AppContextProvider = ({ children }) => {
             toast.error(data.message)
             return false
         } catch (error) {
-            // The user sees a generic, non-technical message — the real underlying
+            // The user sees a generic, non-technical message - the real underlying
             // reason (Chrome failing to launch, a page never loading, etc.) goes to
             // the console instead, where it's actually useful for debugging without
             // exposing internals in the UI.

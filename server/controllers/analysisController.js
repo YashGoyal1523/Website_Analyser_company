@@ -7,7 +7,7 @@ import analysisModel from '../models/analysisModel.js';
 
 // Keep in sync with STEP_TIME / LIGHTHOUSE_AUDIT_SECONDS on the client (Home.jsx / AppContext.jsx)
 const STEP_TIME_SECONDS = { scroll: 1, hover: 0.5, click: 3, search: 2, login: 8, goBack: 3, switchTab: 0.5 };
-// A search step's flat estimate above assumes no submit — a submit button or Enter
+// A search step's flat estimate above assumes no submit - a submit button or Enter
 // checkbox adds a navigation wait, same ballpark as login's, so budget it like login
 // instead of undercounting it as a plain 2s type-and-click.
 const stepTimeSeconds = (item) =>
@@ -15,7 +15,7 @@ const stepTimeSeconds = (item) =>
         ? STEP_TIME_SECONDS.login
         : (STEP_TIME_SECONDS[item.type] || 1);
 // Measured directly against real sites (browser launch + a 3-category audit:
-// performance/accessibility/seo) — ranged ~9-18.5s; 12 is a middle-ground estimate,
+// performance/accessibility/seo) - ranged ~9-18.5s; 12 is a middle-ground estimate,
 // not a tight bound. Lighthouse timing is inherently variable per-site, so this is
 // informational (shown to the user, used as Total Duration's floor) rather than
 // something the request is ever strictly bounded by.
@@ -27,7 +27,7 @@ function sleep(ms) {
 
 // Blocks Puppeteer/Lighthouse from being pointed at internal infrastructure
 // (loopback, private LAN ranges, link-local/cloud metadata addresses like
-// 169.254.169.254) — without this, "analyze any URL" is a server-side request
+// 169.254.169.254) - without this, "analyze any URL" is a server-side request
 // forgery primitive that lets any registered user probe the internal network
 // through this server.
 function isPrivateIp(ip) {
@@ -45,7 +45,7 @@ function isPrivateIp(ip) {
         const lower = ip.toLowerCase();
         return lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80');
     }
-    return true; // unrecognized address shape — block rather than risk it
+    return true; // unrecognized address shape - block rather than risk it
 }
 
 async function assertPublicUrl(rawUrl) {
@@ -115,9 +115,9 @@ async function runStep(tabState, step) {
             } else {
                 return `Search: "${step.selector}" not found`;
             }
-            // Submitting is optional — some sites search on Enter, some need a button
+            // Submitting is optional - some sites search on Enter, some need a button
             // click, and some don't need submitting at all (e.g. live-filtering a list).
-            // A submit button, if given, takes priority over pressing Enter — the client
+            // A submit button, if given, takes priority over pressing Enter - the client
             // already disables the Enter checkbox once a button selector is entered.
             if (step.submitSelector) {
                 const submitEl = await page.waitForSelector(step.submitSelector, { timeout: 10000 }).catch(() => null);
@@ -145,8 +145,8 @@ async function runStep(tabState, step) {
         case 'switchTab': {
             const idx = Number(step.tabIndex);
             // A tab opened by the step right before this one may not be registered
-            // yet — targetcreated is an async browser event that can land a beat
-            // after the step that triggered it already resolved — so give it a
+            // yet - targetcreated is an async browser event that can land a beat
+            // after the step that triggered it already resolved - so give it a
             // short window rather than failing immediately.
             const deadline = Date.now() + 5000;
             let target = tabState.pages[idx];
@@ -163,7 +163,7 @@ async function runStep(tabState, step) {
         }
     }
     // click/search/login are the step types that involve a real user-gesture-style
-    // interaction, so they're the ones that can trigger a new tab opening — give the
+    // interaction, so they're the ones that can trigger a new tab opening - give the
     // browser's async targetcreated event a short, bounded window (typically landing
     // within tens of milliseconds) to arrive before moving on, so the *next* step or
     // analyse sample reliably reflects a tab that just opened, without needing an
@@ -179,7 +179,7 @@ async function runStep(tabState, step) {
 }
 
 // Chrome's per-tab "Memory footprint" column in Task Manager isn't exposed by
-// page.metrics() — that only reports the V8 JS heap. The real OS-level figure
+// page.metrics() - that only reports the V8 JS heap. The real OS-level figure
 // is the RSS of the renderer process(es) backing this page, which we get by
 // asking CDP's SystemInfo domain for the renderer PID(s), then reading actual
 // OS memory for those PIDs via pidusage (CDP alone doesn't return RSS bytes).
@@ -193,15 +193,15 @@ async function getRendererMemoryMB(client) {
         return +(totalBytes / 1024 / 1024).toFixed(2);
     } catch {
         // A renderer PID can exit between SystemInfo.getProcessInfo and pidusage
-        // (e.g. mid-navigation) — treat that as "no reading this tick" rather
+        // (e.g. mid-navigation) - treat that as "no reading this tick" rather
         // than failing the whole capture.
         return null;
     }
 }
 
 async function runLighthouse(url, res) {
-    // req's 'close' event fires as soon as the request body is fully received — which
-    // happens almost instantly, regardless of whether the client is still around — so it
+    // req's 'close' event fires as soon as the request body is fully received - which
+    // happens almost instantly, regardless of whether the client is still around - so it
     // can't tell us anything about the client leaving. res's 'close' event is the real
     // signal: per Node's docs it fires when the underlying connection was terminated
     // *before* the response could be sent, which is exactly "client walked away mid-request."
@@ -274,11 +274,11 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
     browser = await puppeteer.launch({
         headless: mode === 'manual' ? false : 'new',
         // Without this, Puppeteer pins the page viewport to its 800x600 default
-        // regardless of the actual Chrome window size — null lets the page fill
+        // regardless of the actual Chrome window size - null lets the page fill
         // whatever window Chrome opens (maximized, below).
         defaultViewport: mode === 'manual' ? null : undefined,
         // Chrome keeps a warm "spare" renderer process around for the next navigation,
-        // separate from any tab's actual renderer — left enabled, SystemInfo.getProcessInfo
+        // separate from any tab's actual renderer - left enabled, SystemInfo.getProcessInfo
         // reports it alongside our page's renderer and inflates the memory reading below.
         args: [
             '--no-sandbox', '--disable-setuid-sandbox', '--disable-features=SpareRendererForSitePerProcess',
@@ -293,10 +293,10 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
         // Start from Chromium's own default tab; more may join below if the site
         // itself opens new ones (target="_blank", window.open, a form target).
         const page = (await browser.pages())[0];
-        // SystemInfo.getProcessInfo is a browser-level CDP method — a page-level
+        // SystemInfo.getProcessInfo is a browser-level CDP method - a page-level
         // session (page.target().createCDPSession()) rejects it with "only supported
         // on the browser target". It also reports every renderer process in the
-        // browser, not just one tab's — since every tab tracked in tabState (below)
+        // browser, not just one tab's - since every tab tracked in tabState (below)
         // is meant to be part of this analysis, that's the desired total, though it
         // means processMemoryMB is a whole-browser figure, not a per-tab one; Chrome
         // doesn't expose a reliable tab→renderer-PID mapping to attribute it more
@@ -304,7 +304,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
         const client = await browser.target().createCDPSession();
 
         // A URL can pass the upfront assertPublicUrl check in analyzeWebsite and still
-        // redirect to an internal address once Chrome actually navigates — re-validate
+        // redirect to an internal address once Chrome actually navigates - re-validate
         // every main-frame navigation (including each redirect hop) here, not just the
         // original request. Applied to every tracked tab via attachTab below, not just
         // this one, since a popup can navigate anywhere too.
@@ -320,7 +320,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
         };
 
         // Tracks every tab seen so far (by the order it was opened, so a 'switchTab'
-        // step can address one by index) and which one is currently "active" — the
+        // step can address one by index) and which one is currently "active" - the
         // one runStep acts on and the analyse loop below samples. A tab reports
         // itself active via its own Visibility API: that fires both when a human
         // switches tabs directly in a live/manual session's visible Chrome window
@@ -333,16 +333,16 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
         // mid-navigation (or done) by the time our targetcreated handler gets a
         // Page object for it, so the injected listener never fires on that tab's
         // first document at all. New tabs are focused by default when opened via
-        // target="_blank"/window.open — the previously-active tab reliably reports
-        // itself hidden the instant the new one is created — so it's set active
+        // target="_blank"/window.open - the previously-active tab reliably reports
+        // itself hidden the instant the new one is created - so it's set active
         // immediately instead.
-        // Remembers each tab's opener (the tab it was opened from, one level only —
+        // Remembers each tab's opener (the tab it was opened from, one level only -
         // not the full chain) so a closed tab can fall back to the specific tab that
         // spawned it, rather than always jumping straight to the original tab.
         const tabState = { pages: [page], active: page, openerOf: new Map() };
 
         // If the currently-active tab closes (site-closed, user-closed, or a popup
-        // that closes itself — Puppeteer/CDP doesn't distinguish why), picks
+        // that closes itself - Puppeteer/CDP doesn't distinguish why), picks
         // somewhere sensible to fall back to: the tab that opened it, if that's
         // still around, else the original tab, else whatever else is still open.
         // Used both reactively (the 'close' listener below, for the common case)
@@ -365,7 +365,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
                 window.__reportTabVisibility(document.visibilityState);
             };
             await p.evaluateOnNewDocument(trackVisibility);
-            // Also attach directly to whatever's already loaded right now — covers
+            // Also attach directly to whatever's already loaded right now - covers
             // both the original tab (already loaded before this runs) and a new
             // tab whose first navigation evaluateOnNewDocument above missed.
             await p.evaluate(trackVisibility).catch(() => {});
@@ -394,19 +394,19 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
 
         try {
             // Total Duration doesn't bound page load (its clock starts once loading
-            // finishes — see sessionStart below), so navigation needs its own explicit
-            // ceiling here — otherwise a page that never quite goes network-idle
+            // finishes - see sessionStart below), so navigation needs its own explicit
+            // ceiling here - otherwise a page that never quite goes network-idle
             // (persistent polling, websockets, etc.) could hang the request indefinitely.
             await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
         } catch (e) {
-            // A disconnect mid-load closes the browser above, which makes this reject —
+            // A disconnect mid-load closes the browser above, which makes this reject -
             // that's expected and not a real failure, so don't let it escape as one.
             if (clientDisconnected) return { results, warnings };
             throw e;
         }
 
         // Total Duration's clock starts here, once the page has actually finished
-        // loading — not at browser launch or navigation start — so the sequence and
+        // loading - not at browser launch or navigation start - so the sequence and
         // analyse block below get the *full* configured duration for themselves,
         // regardless of how long this particular site took to load.
         const sessionStart = Date.now();
@@ -439,7 +439,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
                         } catch (e) {
                             if (timedOut || clientDisconnected) return;
                             // The active tab may have just closed (site-closed, user-closed,
-                            // or a self-closing popup that beat its own 'close' listener —
+                            // or a self-closing popup that beat its own 'close' listener -
                             // see pickFallbackTab) rather than the whole browser being gone.
                             // Recover onto another still-open tab if one exists; only treat
                             // this as a real disconnect once nothing tracked is left open.
@@ -509,7 +509,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
         await Promise.race([sequenceDone, timeout, disconnected]);
 
         if (browserDisconnected || clientDisconnected) {
-            // Nothing left to capture or wait for — the page/browser or the client is already gone.
+            // Nothing left to capture or wait for - the page/browser or the client is already gone.
         } else if (timedOut) {
             // For a manual live session the analyse block is deliberately unbounded, so
             // running out the clock is the normal/expected way it ends, not a fault.
@@ -532,7 +532,7 @@ async function runSequence(url, sequence, totalDurationMs, mode, res) {
 }
 
 // Login-step credentials are only needed transiently, to drive Puppeteer through
-// runStep() — they must never reach the database or a response body, or a user
+// runStep() - they must never reach the database or a response body, or a user
 // testing a real login-gated page ends up with that site's real password sitting
 // in our DB in plaintext and echoed back over the network on every fetch.
 const redactSequence = (sequence) =>
@@ -574,7 +574,7 @@ const analyzeWebsite = async (req, res) => {
             return res.status(400).json({ success: false, message: 'totalDuration (seconds) is required' });
         }
 
-        // Total Duration doesn't need to cover page load — the session's clock only
+        // Total Duration doesn't need to cover page load - the session's clock only
         // starts once the page has actually finished loading (see sessionStart in
         // runSequence), so the floor here is just "long enough for a full Lighthouse
         // audit," which runs independently and in parallel regardless.
@@ -582,7 +582,7 @@ const analyzeWebsite = async (req, res) => {
 
         if (mode === 'manual') {
             // A live session is an intentionally-unbounded capture block, so the
-            // fixed-cost budget check below doesn't apply — just make sure the
+            // fixed-cost budget check below doesn't apply - just make sure the
             // duration covers a full Lighthouse audit, and there's a usable interval.
             if (totalDurationSeconds < minDurationSeconds) {
                 return res.status(400).json({ success: false, message: `totalDuration must be at least ${minDurationSeconds}s` });
@@ -595,7 +595,7 @@ const analyzeWebsite = async (req, res) => {
                 return res.status(400).json({ success: false, message: 'intervalTime (seconds) is required for a live session' });
             }
             // Without this, an interval longer than the whole session produces at
-            // most one sample, silently — better to reject it upfront.
+            // most one sample, silently - better to reject it upfront.
             if (Number(analyseItem.intervalTime) > totalDurationSeconds) {
                 return res.status(400).json({ success: false, message: 'intervalTime cannot be longer than totalDuration' });
             }
@@ -608,7 +608,7 @@ const analyzeWebsite = async (req, res) => {
                 .filter(item => item.type === 'analyse')
                 .reduce((sum, item) => sum + Number(item.intervals) * (Number(item.intervalTime) || 1), 0);
 
-            // Two distinct reasons Total Duration can be too short — kept separate so
+            // Two distinct reasons Total Duration can be too short - kept separate so
             // the error actually matches the problem, instead of always blaming the
             // sequence for what's really the Lighthouse-audit floor.
             if (totalDurationSeconds < minDurationSeconds) {
@@ -628,16 +628,16 @@ const analyzeWebsite = async (req, res) => {
         }
 
         const data = await analyzeOverTime(url, sequence, totalDurationSeconds * 1000, mode, res);
-        if (clientLeft) return; // nothing to save or send — the client already cancelled
+        if (clientLeft) return; // nothing to save or send - the client already cancelled
         const { warnings, ...dbData } = data;
         // The raw `sequence` (with real credentials, needed above to drive the login
-        // step) must never be persisted or sent back — only this redacted copy is.
+        // step) must never be persisted or sent back - only this redacted copy is.
         const safeSequence = redactSequence(sequence);
         await analysisModel.create({ ...dbData, sequence: safeSequence, mode, totalDuration: totalDurationSeconds, userId: req.userId });
         return res.json({ success: true, data: { ...data, sequence: safeSequence, mode, totalDuration: totalDurationSeconds } });
 
     } catch (error) {
-        if (clientLeft) return; // the disconnect itself can surface as a rejected promise here — expected, not a real failure
+        if (clientLeft) return; // the disconnect itself can surface as a rejected promise here - expected, not a real failure
         console.error('Analysis error:', error.message);
         return res.status(500).json({ success: false, message: 'Failed to analyze URL', details: error.message });
     }

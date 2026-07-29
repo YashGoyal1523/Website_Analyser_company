@@ -31,7 +31,7 @@ function copyDir(src, dest, { exclude = [] } = {}) {
       fs.copyFileSync(s, d)
     }
     // Anything else (sockets, FIFOs, device files) isn't copyable and isn't needed in a
-    // static bundle anyway — see the identical helper in package-mac.mjs for why this
+    // static bundle anyway - see the identical helper in package-mac.mjs for why this
     // can come up (a downloaded browser's crash-handler IPC socket).
   }
 }

@@ -10,12 +10,12 @@ import { buildBlocks, withTiming, formatElapsed } from '../utils/blocks'
 // FixedYAxis (a fixed pixel `width` number) always renders correctly in a
 // printed/PDF export; the main chart right next to it (Recharts'
 // ResponsiveContainer with width="100%" inside a flex child) reliably does
-// not — real exported PDFs confirm every runtime chart's line and x-axis go
+// not - real exported PDFs confirm every runtime chart's line and x-axis go
 // missing while its own y-axis panel renders fine. Recharts resolving
 // width="100%" via its own ResizeObserver is the common thread between every
 // broken chart. Measuring the container ourselves with a plain ResizeObserver
-// and always handing Recharts a concrete pixel number — for both screen and
-// print, not just conditionally at print time — bypasses that resolution path
+// and always handing Recharts a concrete pixel number - for both screen and
+// print, not just conditionally at print time - bypasses that resolution path
 // entirely instead of trying to catch it after the fact.
 const useContainerWidth = () => {
     const ref = useRef(null)
@@ -66,7 +66,7 @@ const intervalAxisProps = {
     tickFormatter: v => `#${v}`,
     // The first/last tick's label is centered directly on the plot's edge (the domain
     // has no padding), so its text otherwise hangs half off the chart and gets clipped
-    // by the SVG's own bounds — worse the more digits the run number has (e.g. #118
+    // by the SVG's own bounds - worse the more digits the run number has (e.g. #118
     // clips more than #6). Padding insets the plotted range from the axis's pixel
     // width without touching the data domain, giving both edge labels room to render
     // in full.
@@ -75,7 +75,7 @@ const intervalAxisProps = {
 
 const MAX_TICK_LABELS = 15
 // Recharts' numeric XAxis `interval` prop just skips a fixed count starting
-// from the first tick, so it doesn't reliably land back on the last one —
+// from the first tick, so it doesn't reliably land back on the last one -
 // with many intervals packed into a fixed-width chart we still want the
 // first and last "#N" always visible, thinning only what's between them.
 const thinTicks = (ticks) => {
@@ -158,7 +158,7 @@ const IntervalCaption = () => (
 )
 
 // Renders just the y-axis as its own small chart alongside the real one. Needs
-// invisible series matching the real chart's dataKey(s) — Recharts computes an
+// invisible series matching the real chart's dataKey(s) - Recharts computes an
 // "auto" domain from the plotted series, not the raw data, so without them
 // this axis's scale wouldn't match the real chart.
 const FixedYAxis = ({ data, series, unit, tickFormatter, width = 65, height, area = false, minSpan }) => {
@@ -197,7 +197,7 @@ const avg = (data, key) => {
     return vals.reduce((a, b) => a + b, 0) / vals.length
 }
 
-// Merge Scan A and Scan B by interval index (run number) rather than elapsed time —
+// Merge Scan A and Scan B by interval index (run number) rather than elapsed time -
 // each x position is "the Nth sample of each scan". Each point is tagged with that
 // sample's own captured URL, falling back to the scan's overall URL if missing.
 const buildMergedData = (rdA, rdB, key, transform, fallbackUrlA, fallbackUrlB) => {
@@ -217,7 +217,7 @@ const buildMergedData = (rdA, rdB, key, transform, fallbackUrlA, fallbackUrlB) =
     return [...map.values()].sort((a, b) => a.run - b.run)
 }
 
-// Shows the interval number and each scan's URL — e.g. "Interval #6" plus one line per scan.
+// Shows the interval number and each scan's URL - e.g. "Interval #6" plus one line per scan.
 const compareTooltipLabel = (v, payload) => {
     const p = payload?.[0]?.payload
     return (
@@ -305,7 +305,7 @@ const ExpandButton = ({ onClick }) => (
 )
 
 // Re-renders the same chart at a larger size in an overlay rather than
-// building a separate "expanded" chart implementation — every chart already
+// building a separate "expanded" chart implementation - every chart already
 // takes `height` as a prop, so the modal just mounts it again with a bigger one.
 const ChartExpandModal = ({ title, subtitle, onClose, winner, avgA, avgB, unit, children }) => {
     useEffect(() => {
@@ -397,7 +397,7 @@ const BlockDividers = ({ blocksA = [], blocksB = [] }) => (
 )
 
 // Chart body pulled out of DualLineChart so it can be mounted a second time
-// (at a larger height) inside the expand modal — each mount gets its own
+// (at a larger height) inside the expand modal - each mount gets its own
 // useContainerWidth measurement, which is what we want for the modal's own width.
 const DualLineChartBody = ({ chartData, ticks, blocksA, blocksB, minSpan, unit, height }) => {
     const [printRef, printWidth] = useContainerWidth()
@@ -481,7 +481,7 @@ const HeapAreaChart = ({ data, ticks, blocksA, blocksB, height = 220, gradIdA = 
     )
 }
 
-// Dual (A/B) OS-level RSS chart body — same rationale as HeapAreaChart above.
+// Dual (A/B) OS-level RSS chart body - same rationale as HeapAreaChart above.
 const ProcMemAreaChart = ({ data, ticks, blocksA, blocksB, height = 220, gradIdA = 'procGradA', gradIdB = 'procGradB' }) => {
     const [printRef, printWidth] = useContainerWidth()
     return (
@@ -540,7 +540,7 @@ const ComparePanel = ({ dataA, dataB }) => {
     const heapAvgB = avg(heapData, 'B')
     const heapWinner = heapAvgA !== null && heapAvgB !== null ? (heapAvgA < heapAvgB ? 'A' : heapAvgA > heapAvgB ? 'B' : null) : null
 
-    // OS-level RSS of each scan's Chrome renderer process — the figure Chrome's
+    // OS-level RSS of each scan's Chrome renderer process - the figure Chrome's
     // own Task Manager shows for a tab, distinct from the V8 heap above.
     const procMemData = buildMergedData(
         dataA.runtimeData, dataB.runtimeData,
@@ -718,11 +718,11 @@ const ComparePanel = ({ dataA, dataB }) => {
                         <DualLineChart title="Task Duration" subtitle="Main-thread tasks (ms)"
                             dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="taskDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" minSpan={MIN_SPAN_MS} />
 
-                        {/* Layout — full */}
+                        {/* Layout - full */}
                         <DualLineChart title="Layout Duration" subtitle="Layout & paint time (ms)"
                             dataA={dataA.runtimeData} dataB={dataB.runtimeData} urlA={dataA.url} urlB={dataB.url} blocksA={blocksA} blocksB={blocksB} dataKey="layoutDuration" transform={v => +(v * 1000).toFixed(2)} unit="ms" height={200} minSpan={MIN_SPAN_MS} />
 
-                        {/* Heap memory — full, area */}
+                        {/* Heap memory - full, area */}
                         <ChartCard title="JS Heap Memory" subtitle="JavaScript memory usage (MB)"
                             winner={heapWinner} avgA={heapAvgA !== null ? +heapAvgA.toFixed(2) : null} avgB={heapAvgB !== null ? +heapAvgB.toFixed(2) : null} unit=" MB"
                             onExpand={() => setHeapExpanded(true)}>
@@ -730,7 +730,7 @@ const ComparePanel = ({ dataA, dataB }) => {
                             <IntervalCaption />
                         </ChartCard>
 
-                        {/* Process memory (RSS) — full, area */}
+                        {/* Process memory (RSS) - full, area */}
                         <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of each scan's Chrome renderer process (MB)"
                             winner={procMemWinner} avgA={procMemAvgA !== null ? +procMemAvgA.toFixed(2) : null} avgB={procMemAvgB !== null ? +procMemAvgB.toFixed(2) : null} unit=" MB"
                             onExpand={() => setProcMemExpanded(true)}>

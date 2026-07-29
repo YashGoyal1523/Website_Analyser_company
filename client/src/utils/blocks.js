@@ -16,7 +16,7 @@ export const buildBlocks = (sequence) => {
 }
 
 // Real elapsed seconds since the session's first sample, derived from the actual
-// captured timestamps rather than assumed from intervalTime × run index — accurate
+// captured timestamps rather than assumed from intervalTime × run index - accurate
 // even when a session mixes multiple Analyse blocks with different interval times,
 // or has action steps burning real time in between.
 export const elapsedSeconds = (runtimeData, sample) => {
@@ -29,7 +29,7 @@ export const elapsedSeconds = (runtimeData, sample) => {
 //    block and the first sample of this one, for drawing a divider line on a
 //    time-based chart axis.
 //  - `startTime`/`endTime`: real elapsed seconds of this block's first/last *actually
-//    captured* sample — clamped to runtimeData rather than trusting the declared
+//    captured* sample - clamped to runtimeData rather than trusting the declared
 //    startRun/endRun, so a block cut short by the Total Duration deadline (its
 //    declared range extends past what was really captured) shows the real partial
 //    range instead of a reversed/zeroed one. A block with no captured samples at all
@@ -48,7 +48,7 @@ export const withTiming = (blocks, runtimeData) =>
         })
         .filter(Boolean)
 
-// Formats a duration in seconds as "45s" or "5m 20s" — used for both chart
+// Formats a duration in seconds as "45s" or "5m 20s" - used for both chart
 // axes/tooltips (long Live Sessions can run many minutes) and duration inputs.
 export const formatElapsed = (totalSeconds) => {
     const s = Math.round(totalSeconds)

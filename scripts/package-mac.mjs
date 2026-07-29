@@ -30,7 +30,7 @@ function copyDir(src, dest, { exclude = [] } = {}) {
     const d = path.join(dest, entry.name)
     if (entry.isSymbolicLink()) {
       // macOS .framework bundles (e.g. Chrome for Testing's) use symlinks for their
-      // top-level entries (Helpers, Resources, Versions/Current -> a version dir) —
+      // top-level entries (Helpers, Resources, Versions/Current -> a version dir) -
       // recreate the link itself rather than letting it fall through to copyFileSync,
       // which can't copy a symlink-to-directory.
       fs.symlinkSync(fs.readlinkSync(s), d)
@@ -40,13 +40,13 @@ function copyDir(src, dest, { exclude = [] } = {}) {
       fs.copyFileSync(s, d)
     }
     // Anything else (sockets, FIFOs, device files) isn't copyable and isn't needed in a
-    // static bundle anyway — e.g. Puppeteer's post-download Chrome launch (to verify the
+    // static bundle anyway - e.g. Puppeteer's post-download Chrome launch (to verify the
     // download works) can leave a crash-handler IPC socket behind under the Framework's
     // Helpers/ dir. Chrome recreates whatever it needs the next time it actually runs.
   }
 }
 
-// GitHub's macos-latest runner is Apple Silicon, so process.arch here is 'arm64' —
+// GitHub's macos-latest runner is Apple Silicon, so process.arch here is 'arm64' -
 // but this also lets the script produce an x64 build correctly if ever run on an
 // Intel runner/machine, rather than hardcoding one architecture.
 function macArch() {
@@ -88,7 +88,7 @@ function flattenSingleSubdir(destDir) {
   fs.rmdirSync(inner)
 }
 
-// The launcher `open`s the browser itself (server.js's own auto-open is win32-only —
+// The launcher `open`s the browser itself (server.js's own auto-open is win32-only -
 // see the `darwin` branch added there) and always cd's into the bundle's own Resources
 // first, since a double-clicked .app's cwd is unpredictable otherwise.
 const LAUNCHER_SH = [

@@ -5,7 +5,7 @@ import userModel from '../models/userModel.js'
 const createToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' })
 
 // Mongoose passes query values through as-is, so an object like { $gt: '' } in place
-// of a string turns a `findOne({ email })` lookup into a NoSQL operator injection —
+// of a string turns a `findOne({ email })` lookup into a NoSQL operator injection -
 // requiring a plain string here closes that off before it reaches the database.
 const isNonEmptyString = (v) => typeof v === 'string' && v.trim().length > 0
 
@@ -24,7 +24,7 @@ export const register = async (req, res) => {
       user: { name: user.name, email: user.email },
     })
   } catch (e) {
-    // The user sees a generic message — the real reason (DB errors, etc.) is only
+    // The user sees a generic message - the real reason (DB errors, etc.) is only
     // useful to whoever's debugging the server, so it stays in the server log.
     console.error('Registration error:', e.message)
     res.status(500).json({ success: false, message: 'Registration failed' })
