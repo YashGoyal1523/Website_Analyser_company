@@ -291,22 +291,92 @@ const SectionHeader = ({ icon, title, subtitle }) => (
     </div>
 )
 
-const ChartCard = ({ title, subtitle, winner, avgA, avgB, unit, children }) => (
+const ExpandButton = ({ onClick }) => (
+    <button
+        onClick={onClick}
+        className="no-print shrink-0 w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+        aria-label="Expand chart"
+        title="Expand chart"
+    >
+        <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    </button>
+)
+
+// Re-renders the same chart at a larger size in an overlay rather than
+// building a separate "expanded" chart implementation — every chart already
+// takes `height` as a prop, so the modal just mounts it again with a bigger one.
+const ChartExpandModal = ({ title, subtitle, onClose, winner, avgA, avgB, unit, children }) => {
+    useEffect(() => {
+        const onKey = e => { if (e.key === 'Escape') onClose() }
+        window.addEventListener('keydown', onKey)
+        const prevOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        return () => {
+            window.removeEventListener('keydown', onKey)
+            document.body.style.overflow = prevOverflow
+        }
+    }, [onClose])
+
+    return (
+        <div
+            className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+        >
+            <div className="bg-white rounded-2xl w-full max-w-[95vw] xl:max-w-350 shadow-2xl p-6 relative max-h-[92vh] overflow-y-auto">
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                    aria-label="Close"
+                >
+                    <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+                    </svg>
+                </button>
+                <div className="flex items-start justify-between mb-4 gap-3 pr-8">
+                    <div className="min-w-0">
+                        <p className="text-base font-semibold text-gray-900">{title}</p>
+                        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+                    </div>
+                    {(winner || (avgA !== undefined && avgA !== null && avgB !== null)) && (
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            {avgA !== undefined && avgA !== null && avgB !== null && (
+                                <p className="text-xs text-gray-400">
+                                    <span style={{ color: COLOR_A }}>A: {avgA}{unit ?? ''}</span>
+                                    <span className="mx-1.5 text-gray-300">·</span>
+                                    <span style={{ color: COLOR_B }}>B: {avgB}{unit ?? ''}</span>
+                                </p>
+                            )}
+                            <WinnerBadge winner={winner} />
+                        </div>
+                    )}
+                </div>
+                {children}
+            </div>
+        </div>
+    )
+}
+
+const ChartCard = ({ title, subtitle, winner, avgA, avgB, unit, children, onExpand }) => (
     <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-start justify-between mb-4">
-            <div>
+        <div className="flex items-start justify-between mb-4 gap-3">
+            <div className="min-w-0">
                 <p className="text-sm font-semibold text-gray-800">{title}</p>
                 {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
             </div>
-            <div className="flex flex-col items-end gap-1.5 shrink-0 ml-3">
-                {avgA !== null && avgB !== null && (
-                    <p className="text-xs text-gray-400">
-                        <span style={{ color: COLOR_A }}>A: {avgA}{unit ?? ''}</span>
-                        <span className="mx-1.5 text-gray-300">·</span>
-                        <span style={{ color: COLOR_B }}>B: {avgB}{unit ?? ''}</span>
-                    </p>
-                )}
-                <WinnerBadge winner={winner} />
+            <div className="flex items-start gap-2 shrink-0 ml-3">
+                <div className="flex flex-col items-end gap-1.5">
+                    {avgA !== null && avgB !== null && (
+                        <p className="text-xs text-gray-400">
+                            <span style={{ color: COLOR_A }}>A: {avgA}{unit ?? ''}</span>
+                            <span className="mx-1.5 text-gray-300">·</span>
+                            <span style={{ color: COLOR_B }}>B: {avgB}{unit ?? ''}</span>
+                        </p>
+                    )}
+                    <WinnerBadge winner={winner} />
+                </div>
+                {onExpand && <ExpandButton onClick={onExpand} />}
             </div>
         </div>
         {children}
@@ -326,8 +396,33 @@ const BlockDividers = ({ blocksA = [], blocksB = [] }) => (
     </>
 )
 
-const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, transform, unit, height = 180, blocksA, blocksB, minSpan }) => {
+// Chart body pulled out of DualLineChart so it can be mounted a second time
+// (at a larger height) inside the expand modal — each mount gets its own
+// useContainerWidth measurement, which is what we want for the modal's own width.
+const DualLineChartBody = ({ chartData, ticks, blocksA, blocksB, minSpan, unit, height }) => {
     const [printRef, printWidth] = useContainerWidth()
+    return (
+        <div className="flex">
+            <FixedYAxis data={chartData} series={['A', 'B']} unit={unit} height={height} minSpan={minSpan} />
+            <div ref={printRef} className="flex-1 min-w-0">
+                <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
+                    <LineChart data={chartData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                        <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
+                        <YAxis hide domain={zoomedDomain(chartData, ['A', 'B'], minSpan)} />
+                        <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
+                        <BlockDividers blocksA={blocksA} blocksB={blocksB} />
+                        <Line type="monotone" dataKey="A" stroke={COLOR_A} strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                        <Line type="monotone" dataKey="B" stroke={COLOR_B} strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
+    )
+}
+
+const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, transform, unit, height = 180, blocksA, blocksB, minSpan }) => {
+    const [expanded, setExpanded] = useState(false)
     const chartData = buildMergedData(dataA, dataB, dataKey, transform, urlA, urlB)
     const ticks = chartData.map(d => d.run)
     const avgAVal = avg(chartData, 'A')
@@ -336,33 +431,94 @@ const DualLineChart = ({ title, subtitle, dataA, dataB, urlA, urlB, dataKey, tra
     const fmtAvg = v => v !== null ? (Number.isInteger(v) ? v : +v.toFixed(2)) : null
 
     return (
-        <ChartCard title={title} subtitle={subtitle} winner={winner} avgA={fmtAvg(avgAVal)} avgB={fmtAvg(avgBVal)} unit={unit}>
-            <div className="flex">
-                <FixedYAxis data={chartData} series={['A', 'B']} unit={unit} height={height} minSpan={minSpan} />
-                <div ref={printRef} className="flex-1 min-w-0">
-                    <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
-                        <LineChart data={chartData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
-                            <YAxis hide domain={zoomedDomain(chartData, ['A', 'B'], minSpan)} />
-                            <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
-                            <BlockDividers blocksA={blocksA} blocksB={blocksB} />
-                            <Line type="monotone" dataKey="A" stroke={COLOR_A} strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                            <Line type="monotone" dataKey="B" stroke={COLOR_B} strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
+        <>
+            <ChartCard title={title} subtitle={subtitle} winner={winner} avgA={fmtAvg(avgAVal)} avgB={fmtAvg(avgBVal)} unit={unit} onExpand={() => setExpanded(true)}>
+                <DualLineChartBody chartData={chartData} ticks={ticks} blocksA={blocksA} blocksB={blocksB} minSpan={minSpan} unit={unit} height={height} />
+                <IntervalCaption />
+            </ChartCard>
+            {expanded && (
+                <ChartExpandModal title={title} subtitle={subtitle} winner={winner} avgA={fmtAvg(avgAVal)} avgB={fmtAvg(avgBVal)} unit={unit} onClose={() => setExpanded(false)}>
+                    <DualLineChartBody chartData={chartData} ticks={ticks} blocksA={blocksA} blocksB={blocksB} minSpan={minSpan} unit={unit} height={520} />
+                    <IntervalCaption />
+                </ChartExpandModal>
+            )}
+        </>
+    )
+}
+
+// Dual (A/B) JS Heap Memory chart body, pulled out of ChartCard's children so
+// it can be mounted a second time (at a larger height) inside the expand modal
+// without duplicating the gradient/axis/tooltip setup.
+const HeapAreaChart = ({ data, ticks, blocksA, blocksB, height = 220, gradIdA = 'gradA', gradIdB = 'gradB' }) => {
+    const [printRef, printWidth] = useContainerWidth()
+    return (
+        <div className="flex">
+            <FixedYAxis data={data} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={height} area minSpan={MIN_SPAN_MB} />
+            <div ref={printRef} className="flex-1 min-w-0">
+                <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
+                    <AreaChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                        <defs>
+                            <linearGradient id={gradIdA} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={COLOR_A} stopOpacity={0.15} />
+                                <stop offset="95%" stopColor={COLOR_A} stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id={gradIdB} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={COLOR_B} stopOpacity={0.15} />
+                                <stop offset="95%" stopColor={COLOR_B} stopOpacity={0} />
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                        <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
+                        <YAxis hide domain={zoomedDomain(data, ['A', 'B'], MIN_SPAN_MB)} />
+                        <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
+                        <BlockDividers blocksA={blocksA} blocksB={blocksB} />
+                        <Area type="monotone" dataKey="A" stroke={COLOR_A} fill={`url(#${gradIdA})`} strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                        <Area type="monotone" dataKey="B" stroke={COLOR_B} fill={`url(#${gradIdB})`} strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                    </AreaChart>
+                </ResponsiveContainer>
             </div>
-            <IntervalCaption />
-        </ChartCard>
+        </div>
+    )
+}
+
+// Dual (A/B) OS-level RSS chart body — same rationale as HeapAreaChart above.
+const ProcMemAreaChart = ({ data, ticks, blocksA, blocksB, height = 220, gradIdA = 'procGradA', gradIdB = 'procGradB' }) => {
+    const [printRef, printWidth] = useContainerWidth()
+    return (
+        <div className="flex">
+            <FixedYAxis data={data} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={height} area minSpan={MIN_SPAN_MB} />
+            <div ref={printRef} className="flex-1 min-w-0">
+                <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
+                    <AreaChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                        <defs>
+                            <linearGradient id={gradIdA} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={COLOR_A} stopOpacity={0.15} />
+                                <stop offset="95%" stopColor={COLOR_A} stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id={gradIdB} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={COLOR_B} stopOpacity={0.15} />
+                                <stop offset="95%" stopColor={COLOR_B} stopOpacity={0} />
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                        <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
+                        <YAxis hide domain={zoomedDomain(data, ['A', 'B'], MIN_SPAN_MB)} />
+                        <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
+                        <BlockDividers blocksA={blocksA} blocksB={blocksB} />
+                        <Area type="monotone" dataKey="A" stroke={COLOR_A} fill={`url(#${gradIdA})`} strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                        <Area type="monotone" dataKey="B" stroke={COLOR_B} fill={`url(#${gradIdB})`} strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                    </AreaChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
     )
 }
 
 /* ── main ─────────────────────────────────────────────────── */
 
 const ComparePanel = ({ dataA, dataB }) => {
-    const [heapPrintRef, heapPrintWidth] = useContainerWidth()
-    const [procMemPrintRef, procMemPrintWidth] = useContainerWidth()
+    const [heapExpanded, setHeapExpanded] = useState(false)
+    const [procMemExpanded, setProcMemExpanded] = useState(false)
     const fmtDate = iso => {
         const d = new Date(iso)
         return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) +
@@ -568,65 +724,17 @@ const ComparePanel = ({ dataA, dataB }) => {
 
                         {/* Heap memory — full, area */}
                         <ChartCard title="JS Heap Memory" subtitle="JavaScript memory usage (MB)"
-                            winner={heapWinner} avgA={heapAvgA !== null ? +heapAvgA.toFixed(2) : null} avgB={heapAvgB !== null ? +heapAvgB.toFixed(2) : null} unit=" MB">
-                            <div className="flex">
-                                <FixedYAxis data={heapData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <div ref={heapPrintRef} className="flex-1 min-w-0">
-                                    <ResponsiveContainer width={heapPrintWidth ?? '100%'} height={220}>
-                                        <AreaChart data={heapData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
-                                            <defs>
-                                                <linearGradient id="gradA" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor={COLOR_A} stopOpacity={0.15} />
-                                                    <stop offset="95%" stopColor={COLOR_A} stopOpacity={0} />
-                                                </linearGradient>
-                                                <linearGradient id="gradB" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor={COLOR_B} stopOpacity={0.15} />
-                                                    <stop offset="95%" stopColor={COLOR_B} stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(heapTicks)} />
-                                            <YAxis hide domain={zoomedDomain(heapData, ['A', 'B'], MIN_SPAN_MB)} />
-                                            <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
-                                            <BlockDividers blocksA={blocksA} blocksB={blocksB} />
-                                            <Area type="monotone" dataKey="A" stroke={COLOR_A} fill="url(#gradA)" strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                                            <Area type="monotone" dataKey="B" stroke={COLOR_B} fill="url(#gradB)" strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
+                            winner={heapWinner} avgA={heapAvgA !== null ? +heapAvgA.toFixed(2) : null} avgB={heapAvgB !== null ? +heapAvgB.toFixed(2) : null} unit=" MB"
+                            onExpand={() => setHeapExpanded(true)}>
+                            <HeapAreaChart data={heapData} ticks={heapTicks} blocksA={blocksA} blocksB={blocksB} />
                             <IntervalCaption />
                         </ChartCard>
 
                         {/* Process memory (RSS) — full, area */}
                         <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of each scan's Chrome renderer process (MB)"
-                            winner={procMemWinner} avgA={procMemAvgA !== null ? +procMemAvgA.toFixed(2) : null} avgB={procMemAvgB !== null ? +procMemAvgB.toFixed(2) : null} unit=" MB">
-                            <div className="flex">
-                                <FixedYAxis data={procMemData} series={['A', 'B']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <div ref={procMemPrintRef} className="flex-1 min-w-0">
-                                    <ResponsiveContainer width={procMemPrintWidth ?? '100%'} height={220}>
-                                        <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
-                                            <defs>
-                                                <linearGradient id="procGradA" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor={COLOR_A} stopOpacity={0.15} />
-                                                    <stop offset="95%" stopColor={COLOR_A} stopOpacity={0} />
-                                                </linearGradient>
-                                                <linearGradient id="procGradB" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor={COLOR_B} stopOpacity={0.15} />
-                                                    <stop offset="95%" stopColor={COLOR_B} stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(procMemTicks)} />
-                                            <YAxis hide domain={zoomedDomain(procMemData, ['A', 'B'], MIN_SPAN_MB)} />
-                                            <Tooltip {...tooltipStyle} labelFormatter={compareTooltipLabel} />
-                                            <BlockDividers blocksA={blocksA} blocksB={blocksB} />
-                                            <Area type="monotone" dataKey="A" stroke={COLOR_A} fill="url(#procGradA)" strokeWidth={2} dot={{ r: 3, fill: COLOR_A, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                                            <Area type="monotone" dataKey="B" stroke={COLOR_B} fill="url(#procGradB)" strokeWidth={2} dot={{ r: 3, fill: COLOR_B, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
+                            winner={procMemWinner} avgA={procMemAvgA !== null ? +procMemAvgA.toFixed(2) : null} avgB={procMemAvgB !== null ? +procMemAvgB.toFixed(2) : null} unit=" MB"
+                            onExpand={() => setProcMemExpanded(true)}>
+                            <ProcMemAreaChart data={procMemData} ticks={procMemTicks} blocksA={blocksA} blocksB={blocksB} />
                             <IntervalCaption />
                         </ChartCard>
 
@@ -643,6 +751,24 @@ const ComparePanel = ({ dataA, dataB }) => {
 
                     </div>
                 </section>
+                )}
+
+                {heapExpanded && (
+                    <ChartExpandModal title="JS Heap Memory" subtitle="JavaScript memory usage (MB)"
+                        winner={heapWinner} avgA={heapAvgA !== null ? +heapAvgA.toFixed(2) : null} avgB={heapAvgB !== null ? +heapAvgB.toFixed(2) : null} unit=" MB"
+                        onClose={() => setHeapExpanded(false)}>
+                        <HeapAreaChart data={heapData} ticks={heapTicks} blocksA={blocksA} blocksB={blocksB} height={520} gradIdA="gradAModal" gradIdB="gradBModal" />
+                        <IntervalCaption />
+                    </ChartExpandModal>
+                )}
+
+                {procMemExpanded && (
+                    <ChartExpandModal title="Process Memory (RSS)" subtitle="Real OS memory of each scan's Chrome renderer process (MB)"
+                        winner={procMemWinner} avgA={procMemAvgA !== null ? +procMemAvgA.toFixed(2) : null} avgB={procMemAvgB !== null ? +procMemAvgB.toFixed(2) : null} unit=" MB"
+                        onClose={() => setProcMemExpanded(false)}>
+                        <ProcMemAreaChart data={procMemData} ticks={procMemTicks} blocksA={blocksA} blocksB={blocksB} height={520} gradIdA="procGradAModal" gradIdB="procGradBModal" />
+                        <IntervalCaption />
+                    </ChartExpandModal>
                 )}
 
             </div>

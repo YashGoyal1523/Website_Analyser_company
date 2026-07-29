@@ -276,11 +276,67 @@ const SectionHeader = ({ icon, title, subtitle }) => (
     </div>
 )
 
-const ChartCard = ({ title, children, subtitle }) => (
+const ExpandButton = ({ onClick }) => (
+    <button
+        onClick={onClick}
+        className="no-print shrink-0 w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+        aria-label="Expand chart"
+        title="Expand chart"
+    >
+        <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    </button>
+)
+
+// Re-renders the same chart at a larger size in an overlay rather than
+// building a separate "expanded" chart implementation — every chart already
+// takes `height` as a prop, so the modal just mounts it again with a bigger one.
+const ChartExpandModal = ({ title, subtitle, onClose, children }) => {
+    useEffect(() => {
+        const onKey = e => { if (e.key === 'Escape') onClose() }
+        window.addEventListener('keydown', onKey)
+        const prevOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        return () => {
+            window.removeEventListener('keydown', onKey)
+            document.body.style.overflow = prevOverflow
+        }
+    }, [onClose])
+
+    return (
+        <div
+            className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+            onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+        >
+            <div className="bg-white rounded-2xl w-full max-w-[95vw] xl:max-w-350 shadow-2xl p-6 relative max-h-[92vh] overflow-y-auto">
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                    aria-label="Close"
+                >
+                    <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+                    </svg>
+                </button>
+                <div className="mb-4 pr-8">
+                    <p className="text-base font-semibold text-gray-900">{title}</p>
+                    {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+                </div>
+                {children}
+            </div>
+        </div>
+    )
+}
+
+const ChartCard = ({ title, children, subtitle, onExpand }) => (
     <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div className="mb-4">
-            <p className="text-sm font-semibold text-gray-800">{title}</p>
-            {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+        <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800">{title}</p>
+                {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+            </div>
+            {onExpand && <ExpandButton onClick={onExpand} />}
         </div>
         {children}
     </div>
@@ -317,12 +373,77 @@ const MetricLine = ({ data, dataKey, color, unit, ticks, height = 180, blocks = 
     )
 }
 
+// JS Heap Memory chart body, pulled out of ChartCard's children so it can be
+// mounted a second time (at a larger height) inside the expand modal without
+// duplicating the gradient/axis/tooltip setup.
+const HeapChart = ({ data, ticks, blocks, height = 220, gradId = 'heapGrad' }) => {
+    const [printRef, printWidth] = useContainerWidth()
+    return (
+        <div>
+            <div className="flex">
+                <FixedYAxis data={data} series={['Heap MB']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={height} area minSpan={MIN_SPAN_MB} />
+                <div ref={printRef} className="flex-1 min-w-0">
+                    <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
+                        <AreaChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                            <defs>
+                                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.2} />
+                                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
+                            <YAxis hide domain={zoomedDomain(data, ['Heap MB'], MIN_SPAN_MB)} />
+                            <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
+                            <BlockDividers blocks={blocks} />
+                            <Area type="monotone" dataKey="Heap MB" stroke="#22c55e" fill={`url(#${gradId})`}
+                                strokeWidth={2} dot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+            <IntervalCaption />
+        </div>
+    )
+}
+
+// OS-level RSS chart body — same rationale as HeapChart above.
+const ProcMemChart = ({ data, ticks, blocks, height = 220, gradId = 'procMemGrad' }) => {
+    const [printRef, printWidth] = useContainerWidth()
+    return (
+        <div>
+            <div className="flex">
+                <FixedYAxis data={data} series={['Process RSS MB']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={height} area minSpan={MIN_SPAN_MB} />
+                <div ref={printRef} className="flex-1 min-w-0">
+                    <ResponsiveContainer width={printWidth ?? '100%'} height={height}>
+                        <AreaChart data={data} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
+                            <defs>
+                                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%"  stopColor="#f97316" stopOpacity={0.2} />
+                                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
+                            <YAxis hide domain={zoomedDomain(data, ['Process RSS MB'], MIN_SPAN_MB)} />
+                            <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
+                            <BlockDividers blocks={blocks} />
+                            <Area type="monotone" dataKey="Process RSS MB" stroke="#f97316" fill={`url(#${gradId})`}
+                                strokeWidth={2} dot={{ r: 3, fill: '#f97316', strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+            <IntervalCaption />
+        </div>
+    )
+}
+
 /* ── main ─────────────────────────────────────────────────── */
 
 const ResultPanel = ({ data }) => {
     const { url, lighthouseData, runtimeData = [] } = data
-    const [heapPrintRef, heapPrintWidth] = useContainerWidth()
-    const [procMemPrintRef, procMemPrintWidth] = useContainerWidth()
+    const [expanded, setExpanded] = useState(null)
 
     const blocks = withTiming(buildBlocks(data.sequence), runtimeData)
     const ticks = runtimeData.map(r => r.run)
@@ -454,78 +575,34 @@ const ResultPanel = ({ data }) => {
 
                     <div className="chart-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-                        <ChartCard title="Script Duration" subtitle="Time executing JS (ms)">
+                        <ChartCard title="Script Duration" subtitle="Time executing JS (ms)" onExpand={() => setExpanded('script')}>
                             <MetricLine data={cpuData} dataKey="Script" color="#6366f1" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} />
                         </ChartCard>
 
-                        <ChartCard title="Task Duration" subtitle="Main-thread task time (ms)">
+                        <ChartCard title="Task Duration" subtitle="Main-thread task time (ms)" onExpand={() => setExpanded('task')}>
                             <MetricLine data={cpuData} dataKey="Task" color="#f59e0b" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} />
                         </ChartCard>
 
-                        <ChartCard title="Layout Duration" subtitle="Time spent on layout & paint (ms)">
+                        <ChartCard title="Layout Duration" subtitle="Time spent on layout & paint (ms)" onExpand={() => setExpanded('layout')}>
                             <MetricLine data={cpuData} dataKey="Layout" color="#ec4899" unit="ms" ticks={ticks} height={200} blocks={blocks} minSpan={MIN_SPAN_MS} />
                         </ChartCard>
 
-                        <ChartCard title="JS Heap Memory" subtitle="JavaScript memory in use (MB)">
-                            <div className="flex">
-                                <FixedYAxis data={memData} series={['Heap MB']} tickFormatter={v => `${(+v).toFixed(2)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <div ref={heapPrintRef} className="flex-1 min-w-0">
-                                    <ResponsiveContainer width={heapPrintWidth ?? '100%'} height={220}>
-                                        <AreaChart data={memData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
-                                            <defs>
-                                                <linearGradient id="heapGrad" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.2} />
-                                                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
-                                            <YAxis hide domain={zoomedDomain(memData, ['Heap MB'], MIN_SPAN_MB)} />
-                                            <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
-                                            <BlockDividers blocks={blocks} />
-                                            <Area type="monotone" dataKey="Heap MB" stroke="#22c55e" fill="url(#heapGrad)"
-                                                strokeWidth={2} dot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-                            <IntervalCaption />
+                        <ChartCard title="JS Heap Memory" subtitle="JavaScript memory in use (MB)" onExpand={() => setExpanded('heap')}>
+                            <HeapChart data={memData} ticks={ticks} blocks={blocks} />
                         </ChartCard>
 
-                        <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of the page's Chrome renderer process (MB)">
-                            <div className="flex">
-                                <FixedYAxis data={procMemData} series={['Process RSS MB']} tickFormatter={v => `${(+v).toFixed(0)} MB`} width={80} height={220} area minSpan={MIN_SPAN_MB} />
-                                <div ref={procMemPrintRef} className="flex-1 min-w-0">
-                                    <ResponsiveContainer width={procMemPrintWidth ?? '100%'} height={220}>
-                                        <AreaChart data={procMemData} margin={{ top: 10, bottom: 22, right: 10, left: 15 }}>
-                                            <defs>
-                                                <linearGradient id="procMemGrad" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%"  stopColor="#f97316" stopOpacity={0.2} />
-                                                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                                            <XAxis dataKey="run" {...intervalAxisProps} ticks={thinTicks(ticks)} />
-                                            <YAxis hide domain={zoomedDomain(procMemData, ['Process RSS MB'], MIN_SPAN_MB)} />
-                                            <Tooltip {...tooltipStyle} labelFormatter={intervalTooltipLabel} />
-                                            <BlockDividers blocks={blocks} />
-                                            <Area type="monotone" dataKey="Process RSS MB" stroke="#f97316" fill="url(#procMemGrad)"
-                                                strokeWidth={2} dot={{ r: 3, fill: '#f97316', strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-                            <IntervalCaption />
+                        <ChartCard title="Process Memory (RSS)" subtitle="Real OS memory of the page's Chrome renderer process (MB)" onExpand={() => setExpanded('procmem')}>
+                            <ProcMemChart data={procMemData} ticks={ticks} blocks={blocks} />
                         </ChartCard>
 
-                        <ChartCard title="DOM Nodes" subtitle="Total nodes in the document">
+                        <ChartCard title="DOM Nodes" subtitle="Total nodes in the document" onExpand={() => setExpanded('dom')}>
                             <MetricLine data={domData} dataKey="DOM Nodes" color="#38bdf8" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} />
                         </ChartCard>
 
                         {/* Odd chart out (7th), centered instead of hugging the left column */}
                         <div className="chart-span-2 lg:col-span-2 flex justify-center">
                             <div className="chart-half w-full lg:w-[calc(50%-0.5rem)]">
-                                <ChartCard title="Event Listeners" subtitle="Active JS event listeners">
+                                <ChartCard title="Event Listeners" subtitle="Active JS event listeners" onExpand={() => setExpanded('listeners')}>
                                     <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} />
                                 </ChartCard>
                             </div>
@@ -534,6 +611,25 @@ const ResultPanel = ({ data }) => {
                     </div>
                 </section>
                 )}
+
+                {expanded && (() => {
+                    const expandedCharts = {
+                        script:    { title: 'Script Duration', subtitle: 'Time executing JS (ms)', render: h => <MetricLine data={cpuData} dataKey="Script" color="#6366f1" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} height={h} /> },
+                        task:      { title: 'Task Duration', subtitle: 'Main-thread task time (ms)', render: h => <MetricLine data={cpuData} dataKey="Task" color="#f59e0b" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} height={h} /> },
+                        layout:    { title: 'Layout Duration', subtitle: 'Time spent on layout & paint (ms)', render: h => <MetricLine data={cpuData} dataKey="Layout" color="#ec4899" unit="ms" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_MS} height={h} /> },
+                        heap:      { title: 'JS Heap Memory', subtitle: 'JavaScript memory in use (MB)', render: h => <HeapChart data={memData} ticks={ticks} blocks={blocks} height={h} gradId="heapGradModal" /> },
+                        procmem:   { title: 'Process Memory (RSS)', subtitle: "Real OS memory of the page's Chrome renderer process (MB)", render: h => <ProcMemChart data={procMemData} ticks={ticks} blocks={blocks} height={h} gradId="procMemGradModal" /> },
+                        dom:       { title: 'DOM Nodes', subtitle: 'Total nodes in the document', render: h => <MetricLine data={domData} dataKey="DOM Nodes" color="#38bdf8" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} height={h} /> },
+                        listeners: { title: 'Event Listeners', subtitle: 'Active JS event listeners', render: h => <MetricLine data={domData} dataKey="Event Listeners" color="#a78bfa" ticks={ticks} blocks={blocks} minSpan={MIN_SPAN_COUNT} height={h} /> },
+                    }
+                    const chart = expandedCharts[expanded]
+                    if (!chart) return null
+                    return (
+                        <ChartExpandModal title={chart.title} subtitle={chart.subtitle} onClose={() => setExpanded(null)}>
+                            {chart.render(520)}
+                        </ChartExpandModal>
+                    )
+                })()}
 
             </div>
         </div>
